@@ -1,0 +1,1 @@
+ALTER TABLE `pushSubscriptions` MODIFY COLUMN `endpoint` varchar(768) NOT NULL;
