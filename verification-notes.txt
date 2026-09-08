@@ -1,0 +1,5 @@
+Visual verification on 2026-09-08:
+- Desktop preview at 1280x900 shows the new Calendario editorial nav item, Discord CROSAIM access link, notices metric, and unchanged dark esports visual hierarchy.
+- Mobile preview at 390x844 shows the responsive menu trigger, readable hero section, two-column metric cards, and no horizontal overflow in the initial viewport.
+- Project status reports running dev server, dependencies OK, no LSP or TypeScript errors.
+- `pnpm check`, `pnpm test`, and `pnpm build` passed. Test suite includes auth logout and Discord webhook reachability without sending a message.
