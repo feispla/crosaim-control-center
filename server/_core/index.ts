@@ -39,6 +39,38 @@ async function startServer() {
   registerStorageProxy(app);
   registerOAuthRoutes(app);
 
+  app.get("/api/discord/widget", async (_req, res) => {
+    try {
+      const response = await fetch("https://discord.com/api/guilds/1546641331927908472/widget.json");
+      if (!response.ok) return res.status(502).json({ error: "discord-widget-unavailable" });
+      const widget = await response.json() as {
+        id?: string;
+        name?: string;
+        instant_invite?: string | null;
+        channels?: Array<{ id: string; name: string; position: number }>;
+        members?: Array<{ id: string; username: string; status: string; avatar_url?: string; game?: { name?: string } }>;
+        presence_count?: number;
+      };
+      return res.json({
+        id: widget.id,
+        name: widget.name,
+        instantInvite: widget.instant_invite ?? null,
+        channels: (widget.channels ?? []).sort((a, b) => a.position - b.position).slice(0, 8),
+        members: (widget.members ?? []).slice(0, 16).map(member => ({
+          id: member.id,
+          username: member.username,
+          status: member.status,
+          avatarUrl: member.avatar_url ?? null,
+          game: member.game?.name ?? null,
+        })),
+        presenceCount: widget.presence_count ?? widget.members?.length ?? 0,
+      });
+    } catch (error) {
+      console.error("[Discord] Widget fetch failed", error);
+      return res.status(502).json({ error: "discord-widget-unavailable" });
+    }
+  });
+
   app.post(
     "/api/clips/upload",
     express.raw({ type: "*/*", limit: "250mb" }),
