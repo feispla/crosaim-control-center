@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -10,6 +11,8 @@ import {
   savePushSubscription, toggleNotificationRead, updateApplicationStatus, updateContentItem, updateRosterPlayer, updateScheduleItem,
 } from "./db";
 import { ENV } from "./_core/env";
+import { sendPushToUser } from "./push";
+import { consumeRateLimit, isSameSiteRequest, requestIdentity } from "./security";
 
 const applicationStatus = z.enum(["Pendiente", "En revisión", "Entrevista", "Aprobada", "Rechazada"]);
 const notificationSeverity = z.enum(["info", "success", "warning", "urgent"]);
@@ -43,13 +46,13 @@ export const appRouter = router({
     logout: publicProcedure.mutation(({ ctx }) => { const cookieOptions = getSessionCookieOptions(ctx.req); ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 }); return { success: true } as const; }),
   }),
   applications: router({
-    submit: publicProcedure.input(z.object({ playerName: z.string().trim().min(2).max(120), discordUsername: z.string().trim().min(2).max(120), discordUserId: z.string().trim().max(40).optional(), contact: z.string().trim().max(180).optional(), role: z.string().trim().min(2).max(80), rank: z.string().trim().min(2).max(80), message: z.string().trim().min(10).max(3000) })).mutation(async ({ input }) => { const result = await createApplication(input); const owner = await getUserByOpenId(ENV.ownerOpenId); if (owner) await createNotification({ userId: owner.id, title: "Nueva postulación recibida", detail: `${input.playerName} · ${input.role} · ${input.rank} · Discord: ${input.discordUsername}`, severity: "urgent", source: "Reclutamiento", read: false }); try { await sendRecruitingWebhook(input); } catch (error) { console.error("[Discord] Recruiting webhook failed", error); } return { ...result, message: "Postulación recibida. El equipo CROSAIM revisará tus datos." }; }),
+    submit: publicProcedure.input(z.object({ playerName: z.string().trim().min(2).max(120), discordUsername: z.string().trim().min(2).max(120), discordUserId: z.string().trim().max(40).optional(), contact: z.string().trim().max(180).optional(), role: z.string().trim().min(2).max(80), rank: z.string().trim().min(2).max(80), message: z.string().trim().min(10).max(3000), website: z.string().max(0).optional() })).mutation(async ({ ctx, input }) => { if (!isSameSiteRequest(ctx.req)) throw new TRPCError({ code: "FORBIDDEN", message: "Origen de formulario no autorizado" }); if (input.website) throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid form submission" }); if (!consumeRateLimit(`application:${requestIdentity(ctx.req)}`, 3, 60 * 60 * 1000)) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Demasiadas postulaciones. Intenta nuevamente más tarde." }); const { website: _website, ...applicationInput } = input; const result = await createApplication(applicationInput); const owner = await getUserByOpenId(ENV.ownerOpenId); if (owner) { await createNotification({ userId: owner.id, title: "Nueva postulación recibida", detail: `${input.playerName} · ${input.role} · ${input.rank} · Discord: ${input.discordUsername}`, severity: "urgent", source: "Reclutamiento", read: false }); await sendPushToUser(owner.id, { title: "Nueva postulación CROSAIM", body: `${input.playerName} · ${input.role} · ${input.rank}`, tag: `application-${result.id}`, url: "/", requireInteraction: true }); } try { await sendRecruitingWebhook(applicationInput); } catch (error) { console.error("[Discord] Recruiting webhook failed", error); } return { ...result, message: "Postulación recibida. El equipo CROSAIM revisará tus datos." }; }),
     list: adminProcedure.query(() => listApplications()),
     updateStatus: adminProcedure.input(z.object({ id: z.number().int().positive(), status: applicationStatus })).mutation(async ({ input }) => { await updateApplicationStatus(input.id, input.status); return { success: true } as const; }),
   }),
   notifications: router({
     list: protectedProcedure.query(({ ctx }) => listNotifications(ctx.user.id)),
-    create: protectedProcedure.input(z.object({ title: z.string().trim().min(2).max(180), detail: z.string().trim().min(2).max(3000), severity: notificationSeverity, source: z.string().trim().max(80).optional() })).mutation(({ ctx, input }) => createNotification({ ...input, userId: ctx.user.id, read: false, source: input.source ?? "CROSAIM" })),
+    create: protectedProcedure.input(z.object({ title: z.string().trim().min(2).max(180), detail: z.string().trim().min(2).max(3000), severity: notificationSeverity, source: z.string().trim().max(80).optional() })).mutation(async ({ ctx, input }) => { const result = await createNotification({ ...input, userId: ctx.user.id, read: false, source: input.source ?? "CROSAIM" }); if (input.severity === "urgent" || input.severity === "warning") await sendPushToUser(ctx.user.id, { title: input.title, body: input.detail, tag: `notification-${result.id}`, url: "/" }); return result; }),
     markRead: protectedProcedure.input(z.object({ id: z.number().int().positive(), read: z.boolean() })).mutation(({ ctx, input }) => toggleNotificationRead(ctx.user.id, input.id, input.read)),
     dismiss: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(({ ctx, input }) => deleteNotification(ctx.user.id, input.id)),
     subscribePush: protectedProcedure.input(z.object({ endpoint: z.string().url().max(768), p256dh: z.string().min(8), auth: z.string().min(4) })).mutation(({ ctx, input }) => savePushSubscription({ ...input, userId: ctx.user.id })),

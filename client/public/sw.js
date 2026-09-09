@@ -7,6 +7,7 @@ self.addEventListener("push", event => {
     icon: "/favicon.ico",
     badge: "/favicon.ico",
     tag: payload.tag || "crosaim-notification",
+    requireInteraction: Boolean(payload.requireInteraction),
     data: { url: payload.url || "/" },
   }));
 });

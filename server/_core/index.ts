@@ -10,6 +10,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { storagePut } from "../storage";
 import { sdk } from "./sdk";
+import { allowedClipTypes, consumeRateLimit, isSameSiteRequest, MAX_CLIP_BYTES, requestIdentity, safeClipName } from "../security";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -73,22 +74,25 @@ async function startServer() {
 
   app.post(
     "/api/clips/upload",
-    express.raw({ type: "*/*", limit: "250mb" }),
+    express.raw({ type: "*/*", limit: "120mb" }),
     async (req, res) => {
       try {
+        if (!isSameSiteRequest(req)) return res.status(403).json({ error: "invalid-origin" });
+        try { await sdk.authenticateRequest(req); } catch { return res.status(401).json({ error: "upload-auth-required" }); }
+        if (!consumeRateLimit(`clip-upload:${requestIdentity(req)}`, 5)) return res.status(429).json({ error: "upload-rate-limit" });
         const buffer = Buffer.isBuffer(req.body) ? req.body : null;
         if (!buffer || buffer.length === 0) {
           return res.status(400).json({ error: "empty-video" });
         }
+        if (buffer.length > MAX_CLIP_BYTES) return res.status(413).json({ error: "video-too-large" });
         const contentType = String(req.headers["content-type"] || "video/mp4").split(";")[0];
-        if (!contentType.startsWith("video/")) {
+        if (!allowedClipTypes.has(contentType)) {
           return res.status(415).json({ error: "video-only" });
         }
         const rawHeaderName = String(req.headers["x-file-name"] || "crosaim-clip.mp4");
-        const rawName = decodeURIComponent(rawHeaderName);
-        const safeName = rawName.replace(/[^a-zA-Z0-9._-]/g, "-").slice(-90) || "crosaim-clip.mp4";
-        const uploaded = await storagePut(`crosaim/clips/${Date.now()}-${safeName}`, buffer, contentType);
-        return res.status(201).json({ ...uploaded, name: safeName, size: buffer.length, contentType });
+        const filename = safeClipName(rawHeaderName);
+        const uploaded = await storagePut(`crosaim/clips/${Date.now()}-${filename}`, buffer, contentType);
+        return res.status(201).json({ ...uploaded, name: filename, size: buffer.length, contentType });
       } catch (error) {
         console.error("[Clips] Upload failed", error);
         return res.status(500).json({ error: "upload-failed" });
@@ -102,6 +106,8 @@ async function startServer() {
     async (req, res) => {
       try {
         await sdk.authenticateRequest(req);
+        if (!isSameSiteRequest(req)) return res.status(403).json({ error: "invalid-origin" });
+        if (!consumeRateLimit(`discord-notice:${requestIdentity(req)}`, 10, 5 * 60 * 1000)) return res.status(429).json({ error: "notice-rate-limit" });
         const message = typeof req.body?.message === "string" ? req.body.message.trim().slice(0, 1800) : "";
         if (!message) return res.status(400).json({ error: "message-required" });
         const webhookUrl = process.env.DISCORD_CROSAIM_WEBHOOK_URL;

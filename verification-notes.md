@@ -12,3 +12,13 @@ Database synchronization milestone verification on 2026-09-08:
 The dashboard preview still renders with the existing high-contrast CROSAIM visual system after adding persistent workspace queries and mutations. The dev server is running, the production build succeeded, TypeScript passed, the database migration was applied successfully, and the full test suite now reports 5 test files and 6 passing tests.
 
 SecurityBot.gg verification: Security Bot protects the Discord server with anti-nuke, anti-raid, anti-spam, CAPTCHA verification, moderation, and whitelist features. It does not protect CROSAIM's website endpoints, upload route, database, or public forms; those still require application-level controls in the next milestone.
+
+Security and VAPID Push milestone verification on 2026-09-09:
+
+The website now protects public recruiting submissions with same-site origin validation, an invisible honeypot field, per-IP rate limiting, strict Zod input limits, and Discord-safe message formatting. Clip uploads require an authenticated session, same-site origin, a supported video MIME type, a 120 MB maximum size, a five-upload rate window, and path-safe filenames. Discord notices also require authentication, same-site origin, and a rate limit.
+
+Real Web Push is configured with VAPID. The public key is exposed to the browser through VITE_VAPID_PUBLIC_KEY; private signing credentials remain server-only. Browser subscriptions are stored in the database, backend notifications call web-push, urgent recruitment alerts use persistent notifications, and expired 404/410 subscriptions are removed automatically. The service worker displays server-sent payloads and honors requireInteraction for urgent notices.
+
+Validation: VAPID configuration test passed; security helper tests passed; full suite passed with 7 files and 10 tests; TypeScript check passed; production build passed; dashboard preview rendered successfully.
+
+Operational boundary: rate-limit counters are process-local. For a multi-instance deployment with high public traffic, replace the in-memory limiter with a shared store or edge rate limiter.
