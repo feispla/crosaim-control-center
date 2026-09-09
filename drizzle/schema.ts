@@ -46,8 +46,62 @@ export const pushSubscriptions = mysqlTable("pushSubscriptions", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const rosterPlayers = mysqlTable("rosterPlayers", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  handle: varchar("handle", { length: 120 }).notNull(),
+  role: varchar("role", { length: 80 }).notNull(),
+  rank: varchar("rank", { length: 80 }).notNull(),
+  availability: varchar("availability", { length: 120 }).notNull(),
+  status: mysqlEnum("status", ["Activo", "Tryout", "Pendiente"]).default("Pendiente").notNull(),
+  source: mysqlEnum("source", ["Tracker.gg", "TPG", "CROSAIM", "Discord"]).default("CROSAIM").notNull(),
+  color: varchar("color", { length: 16 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const contentItems = mysqlTable("contentItems", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  title: varchar("title", { length: 180 }).notNull(),
+  type: varchar("type", { length: 120 }).notNull(),
+  platform: mysqlEnum("platform", ["Tracker.gg", "TikTok / Reels", "Discord"]).notNull(),
+  status: mysqlEnum("status", ["Borrador", "Listo para publicar", "Publicado"]).default("Borrador").notNull(),
+  accent: varchar("accent", { length: 16 }).notNull(),
+  description: text("description").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const scheduleItems = mysqlTable("scheduleItems", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  date: varchar("date", { length: 10 }).notNull(),
+  time: varchar("time", { length: 5 }).notNull(),
+  title: varchar("title", { length: 180 }).notNull(),
+  platform: mysqlEnum("platform", ["Tracker.gg", "TikTok / Reels", "Discord"]).notNull(),
+  status: mysqlEnum("status", ["Planificada", "Publicada", "Borrador"]).default("Planificada").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const clips = mysqlTable("clips", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  name: varchar("name", { length: 180 }).notNull(),
+  url: varchar("url", { length: 768 }).notNull(),
+  size: int("size").notNull(),
+  contentType: varchar("contentType", { length: 120 }).notNull(),
+  status: mysqlEnum("status", ["Subido", "Vista previa local"]).default("Subido").notNull(),
+  uploadedAt: timestamp("uploadedAt").defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Application = typeof applications.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type RosterPlayer = typeof rosterPlayers.$inferSelect;
+export type ContentItem = typeof contentItems.$inferSelect;
+export type ScheduleItem = typeof scheduleItems.$inferSelect;
+export type Clip = typeof clips.$inferSelect;
