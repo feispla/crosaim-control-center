@@ -7,7 +7,7 @@ import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_
 import {
   createApplication, createClip, createContentItem, createNotification, createRosterPlayer, createScheduleItem,
   deleteClip, deleteContentItem, deleteNotification, deleteRosterPlayer, deleteScheduleItem, getUserByOpenId,
-  listApplications, listClips, listContentItems, listNotifications, listRosterPlayers, listScheduleItems,
+  listApplications, listClips, listContentItems, listNotifications, listPushSubscribersForAdmin, listRosterPlayers, listScheduleItems,
   savePushSubscription, toggleNotificationRead, updateApplicationStatus, updateContentItem, updateRosterPlayer, updateScheduleItem,
 } from "./db";
 import { ENV } from "./_core/env";
@@ -56,6 +56,21 @@ export const appRouter = router({
     markRead: protectedProcedure.input(z.object({ id: z.number().int().positive(), read: z.boolean() })).mutation(({ ctx, input }) => toggleNotificationRead(ctx.user.id, input.id, input.read)),
     dismiss: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(({ ctx, input }) => deleteNotification(ctx.user.id, input.id)),
     subscribePush: protectedProcedure.input(z.object({ endpoint: z.string().url().max(768), p256dh: z.string().min(8), auth: z.string().min(4) })).mutation(({ ctx, input }) => savePushSubscription({ ...input, userId: ctx.user.id })),
+  }),
+  adminPush: router({
+    subscribers: adminProcedure.query(async () => {
+      const rows = await listPushSubscribersForAdmin();
+      return rows.map((row) => ({ id: row.id, userId: row.userId, name: row.userName ?? "Cuenta sin nombre", email: row.userEmail ?? "Sin email", subscribedAt: row.subscribedAt }));
+    }),
+    send: adminProcedure.input(z.object({ title: z.string().trim().min(2).max(120), detail: z.string().trim().min(2).max(1000), severity: notificationSeverity, targetUserId: z.number().int().positive().nullable().optional() })).mutation(async ({ input }) => {
+      const subscribers = await listPushSubscribersForAdmin();
+      const targetIds = Array.from(new Set(subscribers.filter((row) => input.targetUserId == null || row.userId === input.targetUserId).map((row) => row.userId)));
+      await Promise.all(targetIds.map(async (userId) => {
+        await createNotification({ userId, title: input.title, detail: input.detail, severity: input.severity, source: "Panel admin", read: false });
+        await sendPushToUser(userId, { title: input.title, body: input.detail, tag: `admin-${Date.now()}`, url: "/", requireInteraction: input.severity === "urgent" });
+      }));
+      return { recipients: targetIds.length, subscriptions: subscribers.filter((row) => input.targetUserId == null || row.userId === input.targetUserId).length };
+    }),
   }),
   roster: router({
     list: protectedProcedure.query(({ ctx }) => listRosterPlayers(ctx.user.id)),

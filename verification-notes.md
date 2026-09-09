@@ -22,3 +22,9 @@ Real Web Push is configured with VAPID. The public key is exposed to the browser
 Validation: VAPID configuration test passed; security helper tests passed; full suite passed with 7 files and 10 tests; TypeScript check passed; production build passed; dashboard preview rendered successfully.
 
 Operational boundary: rate-limit counters are process-local. For a multi-instance deployment with high public traffic, replace the in-memory limiter with a shared store or edge rate limiter.
+
+Admin Push panel milestone verification on 2026-09-09:
+
+Added an admin-only Centro de alertas section. It lists sanitized subscriber metadata (account name, email, subscription time, and device count) without exposing Push endpoints or cryptographic keys. The composer supports broadcast alerts or a selected subscriber, custom title/message, and info, success, warning, or urgent priority. Sending creates synchronized in-app notifications and dispatches Web Push through the existing VAPID backend; urgent notices use persistent browser notifications.
+
+Authorization tests verify both unauthenticated callers and regular authenticated users receive FORBIDDEN for the admin subscriber endpoint. TypeScript passed, the full suite passed with 8 test files and 12 tests, the production build passed, and the dashboard preview shows the new admin navigation entry.
