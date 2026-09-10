@@ -28,3 +28,13 @@ Admin Push panel milestone verification on 2026-09-09:
 Added an admin-only Centro de alertas section. It lists sanitized subscriber metadata (account name, email, subscription time, and device count) without exposing Push endpoints or cryptographic keys. The composer supports broadcast alerts or a selected subscriber, custom title/message, and info, success, warning, or urgent priority. Sending creates synchronized in-app notifications and dispatches Web Push through the existing VAPID backend; urgent notices use persistent browser notifications.
 
 Authorization tests verify both unauthenticated callers and regular authenticated users receive FORBIDDEN for the admin subscriber endpoint. TypeScript passed, the full suite passed with 8 test files and 12 tests, the production build passed, and the dashboard preview shows the new admin navigation entry.
+
+Admin analytics and Discord clip automation milestone verification on 2026-09-09:
+
+Reviewed the deployed CROSAIM experience in the user's connected desktop browser. The visual language remains coherent: dark operations layout, red competitive hero, colored state badges, and the admin navigation entry.
+
+Added persistent pushAlertHistory records and applied migration 0004_steep_tenebrous.sql. The admin API now exposes history and aggregate delivery metrics, records each send with target, recipients, subscription count, severity, and delivery status, and mirrors admin alerts to the configured Discord webhook. The admin UI now includes alert history, quick templates for scrims, tryouts, and tournaments, active subscription/user counts, alert totals, delivery rate, and sent/partial/failed summaries.
+
+Uploaded clips now generate a Discord notification containing the clip name, size, MIME type, and public storage link. The implementation prefers DISCORD_CLIPS_WEBHOOK_URL and falls back to DISCORD_CROSAIM_WEBHOOK_URL, so the existing webhook works immediately; a dedicated clips-channel webhook can be configured later for strict channel routing.
+
+Validation: migration applied successfully; TypeScript passed; production build passed; full suite passed with 9 test files and 13 tests, including clip-message formatting and admin authorization coverage. Discord server navigation from the connected browser timed out during inspection, so no Discord channel settings were changed directly.

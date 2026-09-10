@@ -11,6 +11,7 @@ import { serveStatic, setupVite } from "./vite";
 import { storagePut } from "../storage";
 import { sdk } from "./sdk";
 import { allowedClipTypes, consumeRateLimit, isSameSiteRequest, MAX_CLIP_BYTES, requestIdentity, safeClipName } from "../security";
+import { sendClipDiscordNotice } from "../discord";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -92,6 +93,10 @@ async function startServer() {
         const rawHeaderName = String(req.headers["x-file-name"] || "crosaim-clip.mp4");
         const filename = safeClipName(rawHeaderName);
         const uploaded = await storagePut(`crosaim/clips/${Date.now()}-${filename}`, buffer, contentType);
+        const forwardedProto = req.header("x-forwarded-proto")?.split(",")[0]?.trim() || req.protocol;
+        const forwardedHost = req.header("x-forwarded-host")?.split(",")[0]?.trim() || req.header("host");
+        const publicUrl = forwardedHost ? `${forwardedProto}://${forwardedHost}${uploaded.url}` : uploaded.url;
+        try { await sendClipDiscordNotice({ name: filename, url: publicUrl, size: buffer.length, contentType }); } catch (error) { console.error("[Discord] Clip notice failed", error); }
         return res.status(201).json({ ...uploaded, name: filename, size: buffer.length, contentType });
       } catch (error) {
         console.error("[Clips] Upload failed", error);

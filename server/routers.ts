@@ -7,7 +7,7 @@ import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_
 import {
   createApplication, createClip, createContentItem, createNotification, createRosterPlayer, createScheduleItem,
   deleteClip, deleteContentItem, deleteNotification, deleteRosterPlayer, deleteScheduleItem, getUserByOpenId,
-  listApplications, listClips, listContentItems, listNotifications, listPushSubscribersForAdmin, listRosterPlayers, listScheduleItems,
+  createPushAlertHistory, listApplications, listClips, listContentItems, listNotifications, listPushAlertHistory, listPushSubscribersForAdmin, listRosterPlayers, listScheduleItems,
   savePushSubscription, toggleNotificationRead, updateApplicationStatus, updateContentItem, updateRosterPlayer, updateScheduleItem,
 } from "./db";
 import { ENV } from "./_core/env";
@@ -62,14 +62,26 @@ export const appRouter = router({
       const rows = await listPushSubscribersForAdmin();
       return rows.map((row) => ({ id: row.id, userId: row.userId, name: row.userName ?? "Cuenta sin nombre", email: row.userEmail ?? "Sin email", subscribedAt: row.subscribedAt }));
     }),
-    send: adminProcedure.input(z.object({ title: z.string().trim().min(2).max(120), detail: z.string().trim().min(2).max(1000), severity: notificationSeverity, targetUserId: z.number().int().positive().nullable().optional() })).mutation(async ({ input }) => {
+    history: adminProcedure.query(() => listPushAlertHistory()),
+    stats: adminProcedure.query(async () => {
+      const [subscribers, history] = await Promise.all([listPushSubscribersForAdmin(), listPushAlertHistory()]);
+      const delivered = history.filter((item) => item.deliveryStatus === "sent").length;
+      const partial = history.filter((item) => item.deliveryStatus === "partial").length;
+      return { activeSubscriptions: subscribers.length, uniqueUsers: new Set(subscribers.map((row) => row.userId)).size, alertsSent: history.length, delivered, partial, failed: history.filter((item) => item.deliveryStatus === "failed").length, deliveryRate: history.length ? Math.round(((delivered + partial) / history.length) * 100) : 0 };
+    }),
+    send: adminProcedure.input(z.object({ title: z.string().trim().min(2).max(120), detail: z.string().trim().min(2).max(1000), severity: notificationSeverity, targetUserId: z.number().int().positive().nullable().optional() })).mutation(async ({ ctx, input }) => {
       const subscribers = await listPushSubscribersForAdmin();
       const targetIds = Array.from(new Set(subscribers.filter((row) => input.targetUserId == null || row.userId === input.targetUserId).map((row) => row.userId)));
-      await Promise.all(targetIds.map(async (userId) => {
+      const deliveries = await Promise.all(targetIds.map(async (userId) => {
         await createNotification({ userId, title: input.title, detail: input.detail, severity: input.severity, source: "Panel admin", read: false });
-        await sendPushToUser(userId, { title: input.title, body: input.detail, tag: `admin-${Date.now()}`, url: "/", requireInteraction: input.severity === "urgent" });
+        return sendPushToUser(userId, { title: input.title, body: input.detail, tag: `admin-${Date.now()}`, url: "/", requireInteraction: input.severity === "urgent" });
       }));
-      return { recipients: targetIds.length, subscriptions: subscribers.filter((row) => input.targetUserId == null || row.userId === input.targetUserId).length };
+      const targetSubscriptions = subscribers.filter((row) => input.targetUserId == null || row.userId === input.targetUserId).length;
+      const sent = deliveries.reduce((total, result) => total + result.sent, 0);
+      const deliveryStatus = targetSubscriptions === 0 || sent === 0 ? "failed" : sent < targetSubscriptions ? "partial" : "sent";
+      await createPushAlertHistory({ adminUserId: ctx.user.id, title: input.title, detail: input.detail, severity: input.severity, targetMode: input.targetUserId == null ? "all" : "user", recipientCount: targetIds.length, subscriptionCount: targetSubscriptions, deliveryStatus });
+      try { const webhookUrl = process.env.DISCORD_CROSAIM_WEBHOOK_URL; if (webhookUrl) await fetch(webhookUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: `**CROSAIM · ALERTA ${input.severity.toUpperCase()}**\n**${input.title}**\n${input.detail}\nDestinatarios: ${input.targetUserId == null ? "Todos" : "Usuario seleccionado"}`, allowed_mentions: { parse: [] } }) }); } catch (error) { console.error("[Discord] Admin alert mirror failed", error); }
+      return { recipients: targetIds.length, subscriptions: targetSubscriptions, sent, deliveryStatus };
     }),
   }),
   roster: router({

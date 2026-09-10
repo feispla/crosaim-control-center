@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { applications, clips, contentItems, InsertUser, notifications, pushSubscriptions, rosterPlayers, scheduleItems, users } from "../drizzle/schema";
+import { applications, clips, contentItems, InsertUser, notifications, pushAlertHistory, pushSubscriptions, rosterPlayers, scheduleItems, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -41,6 +41,8 @@ export async function savePushSubscription(input: typeof pushSubscriptions.$infe
 export async function listPushSubscriptions(userId: number) { const db = await getDb(); if (!db) return []; return db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, userId)); }
 export async function deletePushSubscription(endpoint: string) { const db = await getDb(); if (!db) return; await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint)); }
 export async function listPushSubscribersForAdmin() { const db = await getDb(); if (!db) return []; return db.select({ id: pushSubscriptions.id, userId: pushSubscriptions.userId, userName: users.name, userEmail: users.email, subscribedAt: pushSubscriptions.createdAt }).from(pushSubscriptions).leftJoin(users, eq(pushSubscriptions.userId, users.id)).orderBy(desc(pushSubscriptions.createdAt)); }
+export async function createPushAlertHistory(input: typeof pushAlertHistory.$inferInsert) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); const result = await db.insert(pushAlertHistory).values(input); return { id: Number(result[0].insertId) }; }
+export async function listPushAlertHistory() { const db = await getDb(); if (!db) return []; return db.select().from(pushAlertHistory).orderBy(desc(pushAlertHistory.sentAt)).limit(100); }
 
 export async function listRosterPlayers(userId: number) { const db = await getDb(); if (!db) return []; return db.select().from(rosterPlayers).where(eq(rosterPlayers.userId, userId)).orderBy(desc(rosterPlayers.createdAt)); }
 export async function createRosterPlayer(input: typeof rosterPlayers.$inferInsert) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); const result = await db.insert(rosterPlayers).values(input); return { id: Number(result[0].insertId) }; }

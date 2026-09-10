@@ -46,6 +46,19 @@ export const pushSubscriptions = mysqlTable("pushSubscriptions", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const pushAlertHistory = mysqlTable("pushAlertHistory", {
+  id: int("id").autoincrement().primaryKey(),
+  adminUserId: int("adminUserId").notNull(),
+  title: varchar("title", { length: 120 }).notNull(),
+  detail: text("detail").notNull(),
+  severity: mysqlEnum("severity", ["info", "success", "warning", "urgent"]).notNull(),
+  targetMode: mysqlEnum("targetMode", ["all", "user"]).notNull(),
+  recipientCount: int("recipientCount").default(0).notNull(),
+  subscriptionCount: int("subscriptionCount").default(0).notNull(),
+  deliveryStatus: mysqlEnum("deliveryStatus", ["sent", "partial", "failed"]).notNull(),
+  sentAt: timestamp("sentAt").defaultNow().notNull(),
+});
+
 export const rosterPlayers = mysqlTable("rosterPlayers", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
@@ -101,6 +114,7 @@ export type InsertUser = typeof users.$inferInsert;
 export type Application = typeof applications.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type PushAlertHistory = typeof pushAlertHistory.$inferSelect;
 export type RosterPlayer = typeof rosterPlayers.$inferSelect;
 export type ContentItem = typeof contentItems.$inferSelect;
 export type ScheduleItem = typeof scheduleItems.$inferSelect;
