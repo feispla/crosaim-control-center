@@ -11,7 +11,7 @@ import { serveStatic, setupVite } from "./vite";
 import { storagePut } from "../storage";
 import { sdk } from "./sdk";
 import { allowedClipTypes, consumeRateLimit, isSameSiteRequest, MAX_CLIP_BYTES, requestIdentity, safeClipName } from "../security";
-import { sendClipDiscordNotice } from "../discord";
+import { listPendingDiscordEvents, markDiscordEventFailed, markDiscordEventSent } from "../db";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -73,6 +73,24 @@ async function startServer() {
     }
   });
 
+  app.get("/api/discord/events", async (req, res) => {
+    const syncSecret = process.env.CROSAIM_BOT_SYNC_SECRET;
+    if (!syncSecret || req.header("x-crosaim-sync-secret") !== syncSecret) return res.status(401).json({ error: "sync-not-authorized" });
+    try { return res.json(await listPendingDiscordEvents(20)); } catch (error) { console.error("[Discord] Event polling failed", error); return res.status(500).json({ error: "sync-unavailable" }); }
+  });
+
+  app.post("/api/discord/events/:id/ack", express.json({ limit: "8kb" }), async (req, res) => {
+    const syncSecret = process.env.CROSAIM_BOT_SYNC_SECRET;
+    if (!syncSecret || req.header("x-crosaim-sync-secret") !== syncSecret) return res.status(401).json({ error: "sync-not-authorized" });
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: "invalid-event-id" });
+    try {
+      if (req.body?.ok === true) await markDiscordEventSent(id);
+      else await markDiscordEventFailed(id, typeof req.body?.error === "string" ? req.body.error : "Discord delivery failed");
+      return res.status(204).send();
+    } catch (error) { console.error("[Discord] Event acknowledgement failed", error); return res.status(500).json({ error: "ack-unavailable" }); }
+  });
+
   app.post(
     "/api/clips/upload",
     express.raw({ type: "*/*", limit: "120mb" }),
@@ -96,7 +114,6 @@ async function startServer() {
         const forwardedProto = req.header("x-forwarded-proto")?.split(",")[0]?.trim() || req.protocol;
         const forwardedHost = req.header("x-forwarded-host")?.split(",")[0]?.trim() || req.header("host");
         const publicUrl = forwardedHost ? `${forwardedProto}://${forwardedHost}${uploaded.url}` : uploaded.url;
-        try { await sendClipDiscordNotice({ name: filename, url: publicUrl, size: buffer.length, contentType }); } catch (error) { console.error("[Discord] Clip notice failed", error); }
         return res.status(201).json({ ...uploaded, name: filename, size: buffer.length, contentType });
       } catch (error) {
         console.error("[Clips] Upload failed", error);

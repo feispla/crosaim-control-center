@@ -5,8 +5,8 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
-  createApplication, createClip, createContentItem, createNotification, createRosterPlayer, createScheduleItem,
-  deleteClip, deleteContentItem, deleteNotification, deleteRosterPlayer, deleteScheduleItem, getUserByOpenId,
+  createApplication, createClip, createContentItem, createDiscordEvent, createNotification, createRosterPlayer, createScheduleItem,
+  deleteApplication, deleteClip, deleteContentItem, deleteNotification, deleteRosterPlayer, deleteScheduleItem, getUserByOpenId,
   createPushAlertHistory, listApplications, listClips, listContentItems, listNotifications, listPushAlertHistory, listPushSubscribersForAdmin, listRosterPlayers, listScheduleItems,
   savePushSubscription, toggleNotificationRead, updateApplicationStatus, updateContentItem, updateRosterPlayer, updateScheduleItem,
 } from "./db";
@@ -39,6 +39,14 @@ async function sendRecruitingWebhook(input: { playerName: string; discordUsernam
   await fetch(webhookUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: formatRecruitingWebhook(input), allowed_mentions: { parse: [] } }) });
 }
 
+async function queueDiscordEvent(eventType: string, dedupeKey: string, payload: Record<string, unknown>) {
+  try {
+    await createDiscordEvent({ eventType, dedupeKey, payload: JSON.stringify(payload), status: "pending", attempts: 0 });
+  } catch (error) {
+    console.error("[Discord] Could not queue event", { eventType, dedupeKey, error });
+  }
+}
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -46,9 +54,34 @@ export const appRouter = router({
     logout: publicProcedure.mutation(({ ctx }) => { const cookieOptions = getSessionCookieOptions(ctx.req); ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 }); return { success: true } as const; }),
   }),
   applications: router({
-    submit: publicProcedure.input(z.object({ playerName: z.string().trim().min(2).max(120), discordUsername: z.string().trim().min(2).max(120), discordUserId: z.string().trim().max(40).optional(), contact: z.string().trim().max(180).optional(), role: z.string().trim().min(2).max(80), rank: z.string().trim().min(2).max(80), message: z.string().trim().min(10).max(3000), website: z.string().max(0).optional() })).mutation(async ({ ctx, input }) => { if (!isSameSiteRequest(ctx.req)) throw new TRPCError({ code: "FORBIDDEN", message: "Origen de formulario no autorizado" }); if (input.website) throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid form submission" }); if (!consumeRateLimit(`application:${requestIdentity(ctx.req)}`, 3, 60 * 60 * 1000)) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Demasiadas postulaciones. Intenta nuevamente más tarde." }); const { website: _website, ...applicationInput } = input; const result = await createApplication(applicationInput); const owner = await getUserByOpenId(ENV.ownerOpenId); if (owner) { await createNotification({ userId: owner.id, title: "Nueva postulación recibida", detail: `${input.playerName} · ${input.role} · ${input.rank} · Discord: ${input.discordUsername}`, severity: "urgent", source: "Reclutamiento", read: false }); await sendPushToUser(owner.id, { title: "Nueva postulación CROSAIM", body: `${input.playerName} · ${input.role} · ${input.rank}`, tag: `application-${result.id}`, url: "/", requireInteraction: true }); } try { await sendRecruitingWebhook(applicationInput); } catch (error) { console.error("[Discord] Recruiting webhook failed", error); } return { ...result, message: "Postulación recibida. El equipo CROSAIM revisará tus datos." }; }),
+    submit: publicProcedure.input(z.object({ playerName: z.string().trim().min(2).max(120), discordUsername: z.string().trim().min(2).max(120), discordUserId: z.string().trim().max(40).optional(), contact: z.string().trim().max(180).optional(), role: z.string().trim().min(2).max(80), rank: z.string().trim().min(2).max(80), message: z.string().trim().min(10).max(3000), website: z.string().max(0).optional() })).mutation(async ({ ctx, input }) => { if (!isSameSiteRequest(ctx.req)) throw new TRPCError({ code: "FORBIDDEN", message: "Origen de formulario no autorizado" }); if (input.website) throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid form submission" }); if (!consumeRateLimit(`application:${requestIdentity(ctx.req)}`, 3, 60 * 60 * 1000)) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Demasiadas postulaciones. Intenta nuevamente más tarde." }); const { website: _website, ...applicationInput } = input; const result = await createApplication(applicationInput); const owner = await getUserByOpenId(ENV.ownerOpenId); if (owner) { await createNotification({ userId: owner.id, title: "Nueva postulación recibida", detail: `${input.playerName} · ${input.role} · ${input.rank} · Discord: ${input.discordUsername}`, severity: "urgent", source: "Reclutamiento", read: false }); await sendPushToUser(owner.id, { title: "Nueva postulación CROSAIM", body: `${input.playerName} · ${input.role} · ${input.rank}`, tag: `application-${result.id}`, url: "/", requireInteraction: true }); } try { await sendRecruitingWebhook(applicationInput); } catch (error) { console.error("[Discord] Recruiting webhook failed", error); } return { ...result, message: `Postulación #${result.id} recibida. Guarda este número y consulta el estado con tu usuario de Discord.` }; }),
     list: adminProcedure.query(() => listApplications()),
-    updateStatus: adminProcedure.input(z.object({ id: z.number().int().positive(), status: applicationStatus })).mutation(async ({ input }) => { await updateApplicationStatus(input.id, input.status); return { success: true } as const; }),
+    lookup: publicProcedure.input(z.object({ id: z.number().int().positive(), discordUsername: z.string().trim().min(2).max(120) })).query(async ({ ctx, input }) => {
+      if (!isSameSiteRequest(ctx.req)) throw new TRPCError({ code: "FORBIDDEN", message: "Origen no autorizado" });
+      if (!consumeRateLimit(`application-lookup:${requestIdentity(ctx.req)}`, 12, 15 * 60 * 1000)) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Demasiadas consultas. Intenta nuevamente más tarde." });
+      const application = (await listApplications()).find((item) => item.id === input.id && item.discordUsername.trim().toLowerCase() === input.discordUsername.trim().toLowerCase());
+      if (!application) throw new TRPCError({ code: "NOT_FOUND", message: "No encontramos una postulación con esos datos." });
+      return { id: application.id, playerName: application.playerName, role: application.role, rank: application.rank, status: application.status, createdAt: application.createdAt };
+    }),
+    updateStatus: adminProcedure.input(z.object({ id: z.number().int().positive(), status: applicationStatus })).mutation(async ({ input }) => {
+      const application = (await listApplications()).find((item) => item.id === input.id);
+      if (!application) throw new TRPCError({ code: "NOT_FOUND", message: "Postulación no encontrada" });
+      await updateApplicationStatus(input.id, input.status);
+      if (input.status === "Entrevista" || input.status === "Aprobada" || input.status === "Rechazada") {
+        await queueDiscordEvent(`application_${input.status === "Entrevista" ? "interview" : input.status === "Aprobada" ? "approved" : "rejected"}`, `application:${application.id}:${input.status}`, {
+          applicationId: application.id,
+          playerName: application.playerName,
+          discordUsername: application.discordUsername,
+          discordUserId: application.discordUserId,
+          role: application.role,
+          rank: application.rank,
+          contact: application.contact,
+          message: application.message,
+        });
+      }
+      return { success: true } as const;
+    }),
+    remove: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => { await deleteApplication(input.id); return { success: true } as const; }),
   }),
   notifications: router({
     list: protectedProcedure.query(({ ctx }) => listNotifications(ctx.user.id)),
@@ -86,7 +119,11 @@ export const appRouter = router({
   }),
   roster: router({
     list: protectedProcedure.query(({ ctx }) => listRosterPlayers(ctx.user.id)),
-    create: protectedProcedure.input(rosterInput).mutation(({ ctx, input }) => createRosterPlayer({ ...input, userId: ctx.user.id })),
+    create: protectedProcedure.input(rosterInput).mutation(async ({ ctx, input }) => {
+      const result = await createRosterPlayer({ ...input, userId: ctx.user.id });
+      if (input.status === "Tryout") await queueDiscordEvent("roster_tryout", `roster:${result.id}`, { playerName: input.handle, role: input.role, rank: input.rank, source: input.source });
+      return result;
+    }),
     update: protectedProcedure.input(z.object({ id: z.number().int().positive(), data: rosterInput.partial() })).mutation(({ ctx, input }) => updateRosterPlayer(ctx.user.id, input.id, input.data)),
     remove: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(({ ctx, input }) => deleteRosterPlayer(ctx.user.id, input.id)),
   }),
@@ -104,7 +141,11 @@ export const appRouter = router({
   }),
   clips: router({
     list: protectedProcedure.query(({ ctx }) => listClips(ctx.user.id)),
-    create: protectedProcedure.input(clipInput).mutation(({ ctx, input }) => createClip({ ...input, userId: ctx.user.id })),
+    create: protectedProcedure.input(clipInput).mutation(async ({ ctx, input }) => {
+      const result = await createClip({ ...input, userId: ctx.user.id });
+      await queueDiscordEvent("clip_uploaded", `clip:${result.id}`, { clipId: result.id, name: input.name, url: input.url, size: input.size, contentType: input.contentType });
+      return result;
+    }),
     remove: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(({ ctx, input }) => deleteClip(ctx.user.id, input.id)),
   }),
   workspace: router({

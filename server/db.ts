@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { applications, clips, contentItems, InsertUser, notifications, pushAlertHistory, pushSubscriptions, rosterPlayers, scheduleItems, users } from "../drizzle/schema";
+import { applications, clips, contentItems, discordEvents, InsertUser, notifications, pushAlertHistory, pushSubscriptions, rosterPlayers, scheduleItems, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -33,6 +33,11 @@ export async function getUserByOpenId(openId: string) { const db = await getDb()
 export async function createApplication(input: typeof applications.$inferInsert) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); const result = await db.insert(applications).values(input); return { id: Number(result[0].insertId) }; }
 export async function listApplications() { const db = await getDb(); if (!db) return []; return db.select().from(applications).orderBy(desc(applications.createdAt)); }
 export async function updateApplicationStatus(id: number, status: typeof applications.$inferInsert.status) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); await db.update(applications).set({ status }).where(eq(applications.id, id)); }
+export async function deleteApplication(id: number) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); await db.delete(applications).where(eq(applications.id, id)); }
+export async function createDiscordEvent(input: typeof discordEvents.$inferInsert) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); const result = await db.insert(discordEvents).values(input).onDuplicateKeyUpdate({ set: { dedupeKey: input.dedupeKey } }); return { id: Number(result[0].insertId || 0) }; }
+export async function listPendingDiscordEvents(limit = 20) { const db = await getDb(); if (!db) return []; return db.select().from(discordEvents).where(eq(discordEvents.status, "pending")).orderBy(discordEvents.createdAt).limit(limit); }
+export async function markDiscordEventSent(id: number) { const db = await getDb(); if (!db) return; await db.update(discordEvents).set({ status: "sent", processedAt: new Date(), attempts: 1 }).where(eq(discordEvents.id, id)); }
+export async function markDiscordEventFailed(id: number, error: string) { const db = await getDb(); if (!db) return; await db.update(discordEvents).set({ status: "failed", lastError: error.slice(0, 1000), processedAt: new Date(), attempts: 1 }).where(eq(discordEvents.id, id)); }
 export async function listNotifications(userId: number) { const db = await getDb(); if (!db) return []; return db.select().from(notifications).where(eq(notifications.userId, userId)).orderBy(desc(notifications.createdAt)).limit(80); }
 export async function createNotification(input: typeof notifications.$inferInsert) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); const result = await db.insert(notifications).values(input); return { id: Number(result[0].insertId) }; }
 export async function toggleNotificationRead(userId: number, id: number, read: boolean) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); await db.update(notifications).set({ read }).where(and(eq(notifications.id, id), eq(notifications.userId, userId))); }

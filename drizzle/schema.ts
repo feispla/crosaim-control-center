@@ -109,6 +109,18 @@ export const clips = mysqlTable("clips", {
   uploadedAt: timestamp("uploadedAt").defaultNow().notNull(),
 });
 
+export const discordEvents = mysqlTable("discordEvents", {
+  id: int("id").autoincrement().primaryKey(),
+  eventType: varchar("eventType", { length: 40 }).notNull(),
+  dedupeKey: varchar("dedupeKey", { length: 180 }).notNull().unique(),
+  payload: text("payload").notNull(),
+  status: mysqlEnum("status", ["pending", "sent", "failed"]).default("pending").notNull(),
+  attempts: int("attempts").default(0).notNull(),
+  lastError: text("lastError"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  processedAt: timestamp("processedAt"),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Application = typeof applications.$inferSelect;
@@ -119,3 +131,4 @@ export type RosterPlayer = typeof rosterPlayers.$inferSelect;
 export type ContentItem = typeof contentItems.$inferSelect;
 export type ScheduleItem = typeof scheduleItems.$inferSelect;
 export type Clip = typeof clips.$inferSelect;
+export type DiscordEvent = typeof discordEvents.$inferSelect;
