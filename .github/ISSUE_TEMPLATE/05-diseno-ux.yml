@@ -1,0 +1,74 @@
+name: 🎨 Mejora de diseño / UX
+description: Propón mejoras visuales o de experiencia de usuario para Crosaim Control Center.
+title: "[UX] "
+labels:
+  - design
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🎨 Mejora de diseño / UX
+        Describe la experiencia que queremos mejorar y el resultado que debería percibir el usuario.
+
+  - type: textarea
+    id: problema
+    attributes:
+      label: 🔎 Problema de experiencia
+      description: ¿Qué parte de la interfaz o experiencia necesita mejorar?
+      placeholder: Describe qué resulta confuso, lento, poco claro o visualmente inconsistente.
+    validations:
+      required: true
+
+  - type: textarea
+    id: propuesta
+    attributes:
+      label: ✨ Propuesta
+      description: Describe la mejora visual o de experiencia.
+      placeholder: Explica la solución propuesta y cómo debería sentirse o funcionar.
+    validations:
+      required: true
+
+  - type: textarea
+    id: referencia
+    attributes:
+      label: 🖼️ Referencias
+      description: Añade capturas, diseños, ejemplos o enlaces de inspiración.
+      placeholder: Arrastra capturas aquí o añade enlaces.
+    validations:
+      required: false
+
+  - type: textarea
+    id: criterios
+    attributes:
+      label: ✅ Criterios de aceptación
+      placeholder: |
+        - [ ] La interfaz mantiene coherencia visual.
+        - [ ] La interacción es clara para el usuario.
+        - [ ] La solución funciona correctamente en las vistas afectadas.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: prioridad
+    attributes:
+      label: 🚦 Prioridad
+      options:
+        - 🔴 Crítica
+        - 🟠 Alta
+        - 🟡 Media
+        - 🟢 Baja
+      default: 2
+    validations:
+      required: true
+
+  - type: dropdown
+    id: dispositivo
+    attributes:
+      label: 📱 Dispositivo / vista
+      options:
+        - Desktop
+        - Tablet
+        - Mobile
+        - Responsive / Todos
+    validations:
+      required: true
