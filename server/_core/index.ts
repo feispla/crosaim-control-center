@@ -11,7 +11,7 @@ import { serveStatic, setupVite } from "./vite";
 import { storagePut } from "../storage";
 import { sdk } from "./sdk";
 import { allowedClipTypes, consumeRateLimit, isSameSiteRequest, MAX_CLIP_BYTES, requestIdentity, safeClipName } from "../security";
-import { listPendingDiscordEvents, markDiscordEventFailed, markDiscordEventSent } from "../db";
+import { createApplication, getApplicationByDiscordMessageId, listApplications, listPendingDiscordEvents, markDiscordEventFailed, markDiscordEventSent, updateApplicationDiscordMessageId } from "../db";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -89,6 +89,27 @@ async function startServer() {
       else await markDiscordEventFailed(id, typeof req.body?.error === "string" ? req.body.error : "Discord delivery failed");
       return res.status(204).send();
     } catch (error) { console.error("[Discord] Event acknowledgement failed", error); return res.status(500).json({ error: "ack-unavailable" }); }
+  });
+
+  app.post("/api/discord/applications", express.json({ limit: "32kb" }), async (req, res) => {
+    const syncSecret = process.env.CROSAIM_BOT_SYNC_SECRET;
+    if (!syncSecret || req.header("x-crosaim-sync-secret") !== syncSecret) return res.status(401).json({ error: "sync-not-authorized" });
+    const body = req.body ?? {};
+    const discordMessageId = typeof body.discordMessageId === "string" ? body.discordMessageId.trim().slice(0, 40) : "";
+    const playerName = typeof body.playerName === "string" ? body.playerName.trim().slice(0, 120) : "";
+    const discordUsername = typeof body.discordUsername === "string" ? body.discordUsername.trim().slice(0, 120) : "";
+    const role = typeof body.role === "string" ? body.role.trim().slice(0, 80) : "";
+    const rank = typeof body.rank === "string" ? body.rank.trim().slice(0, 80) : "";
+    const message = typeof body.message === "string" ? body.message.trim().slice(0, 3000) : "";
+    if (!discordMessageId || playerName.length < 2 || discordUsername.length < 2 || role.length < 2 || rank.length < 2 || message.length < 2) return res.status(400).json({ error: "invalid-application-data" });
+    try {
+      const existingByMessage = await getApplicationByDiscordMessageId(discordMessageId);
+      if (existingByMessage) return res.json({ created: false, application: existingByMessage });
+      const existing = (await listApplications()).find((item) => item.playerName.trim().toLowerCase() === playerName.toLowerCase() && item.discordUsername.trim().replace(/^@/, "").toLowerCase() === discordUsername.replace(/^@/, "").toLowerCase() && item.message.trim() === message);
+      if (existing) { if (!existing.discordMessageId) await updateApplicationDiscordMessageId(existing.id, discordMessageId); return res.json({ created: false, application: existing }); }
+      const result = await createApplication({ playerName, discordUsername, discordUserId: typeof body.discordUserId === "string" ? body.discordUserId.trim().slice(0, 40) || null : null, contact: typeof body.contact === "string" ? body.contact.trim().slice(0, 180) || null : null, role, rank, message, discordMessageId, status: "Pendiente" });
+      return res.status(201).json({ created: true, id: result.id });
+    } catch (error) { console.error("[Discord] Application sync failed", error); return res.status(500).json({ error: "application-sync-failed" }); }
   });
 
   app.post(

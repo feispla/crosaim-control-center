@@ -17,6 +17,7 @@ export const applications = mysqlTable("applications", {
   playerName: varchar("playerName", { length: 120 }).notNull(),
   discordUsername: varchar("discordUsername", { length: 120 }).notNull(),
   discordUserId: varchar("discordUserId", { length: 40 }),
+  discordMessageId: varchar("discordMessageId", { length: 40 }).unique(),
   contact: varchar("contact", { length: 180 }),
   role: varchar("role", { length: 80 }).notNull(),
   rank: varchar("rank", { length: 80 }).notNull(),

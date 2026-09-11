@@ -43,6 +43,13 @@
       "when": 1789009051820,
       "tag": "0005_large_red_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1789038393945,
+      "tag": "0006_young_demogoblin",
+      "breakpoints": true
     }
   ]
 }
