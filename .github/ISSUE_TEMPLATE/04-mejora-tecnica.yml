@@ -1,0 +1,90 @@
+name: ⚙️ Mejora técnica
+description: Propón una mejora de código, arquitectura, rendimiento, infraestructura o automatización.
+title: "[TECH] "
+labels:
+  - technical
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ⚙️ Mejora técnica
+        Usa esta plantilla para cambios internos que mejoren la calidad, estabilidad, rendimiento o mantenibilidad del proyecto.
+
+  - type: textarea
+    id: situacion
+    attributes:
+      label: 🔎 Situación actual
+      description: ¿Qué problema técnico existe actualmente?
+      placeholder: Describe la situación, limitación o deuda técnica.
+    validations:
+      required: true
+
+  - type: textarea
+    id: propuesta
+    attributes:
+      label: 🛠️ Mejora propuesta
+      description: ¿Qué cambio técnico propones?
+      placeholder: Describe la solución a alto nivel.
+    validations:
+      required: true
+
+  - type: textarea
+    id: impacto
+    attributes:
+      label: 📊 Impacto
+      description: Explica qué mejora se espera conseguir.
+      placeholder: Rendimiento, estabilidad, seguridad, mantenibilidad, costes, automatización, etc.
+    validations:
+      required: true
+
+  - type: textarea
+    id: criterios
+    attributes:
+      label: ✅ Criterios de aceptación
+      placeholder: |
+        - [ ]
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: prioridad
+    attributes:
+      label: 🚦 Prioridad
+      options:
+        - 🔴 Crítica
+        - 🟠 Alta
+        - 🟡 Media
+        - 🟢 Baja
+      default: 2
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 🧭 Área técnica
+      options:
+        - Frontend
+        - Backend
+        - Base de datos
+        - API
+        - Discord / Webhooks
+        - Infraestructura / Deploy
+        - CI/CD
+        - Seguridad
+        - Rendimiento
+        - Automatización
+        - Otro
+    validations:
+      required: true
+
+  - type: textarea
+    id: referencias
+    attributes:
+      label: 🔗 Referencias técnicas
+      description: Añade documentación, logs, PRs, issues o enlaces relevantes.
+      placeholder: Enlaces y referencias técnicas.
+    validations:
+      required: false
