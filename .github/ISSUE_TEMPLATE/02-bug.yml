@@ -1,0 +1,82 @@
+name: 🐛 Reportar error
+description: Reporta un problema reproducible para que el equipo pueda investigarlo y corregirlo.
+title: "[BUG] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🐛 Reportar error
+        Ayúdanos a localizar y corregir el problema con información concreta y reproducible.
+
+  - type: textarea
+    id: problema
+    attributes:
+      label: 🔴 Problema
+      description: ¿Qué está fallando?
+      placeholder: Describe exactamente qué ocurre.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduccion
+    attributes:
+      label: 🔁 Pasos para reproducir
+      description: Indica los pasos necesarios para volver a producir el error.
+      placeholder: |
+        1. 
+        2. 
+        3. 
+    validations:
+      required: true
+
+  - type: textarea
+    id: esperado
+    attributes:
+      label: ✅ Comportamiento esperado
+      description: ¿Qué debería ocurrir en condiciones normales?
+      placeholder: Explica el resultado esperado.
+    validations:
+      required: true
+
+  - type: textarea
+    id: entorno
+    attributes:
+      label: 🖥️ Entorno
+      description: Añade navegador, sistema, versión, dispositivo o entorno de ejecución relevante.
+      placeholder: Navegador / SO / versión / entorno / dispositivo
+    validations:
+      required: false
+
+  - type: textarea
+    id: evidencia
+    attributes:
+      label: 📎 Evidencia
+      description: Adjunta capturas, logs, errores de consola o enlaces relacionados.
+      placeholder: Pega aquí logs, capturas o enlaces.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: prioridad
+    attributes:
+      label: 🚦 Prioridad
+      options:
+        - 🔴 Crítica
+        - 🟠 Alta
+        - 🟡 Media
+        - 🟢 Baja
+      default: 2
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 🔍 Antes de enviar
+      options:
+        - label: He comprobado que el error no está reportado anteriormente.
+          required: true
+        - label: He incluido pasos suficientes para reproducirlo.
+          required: true
