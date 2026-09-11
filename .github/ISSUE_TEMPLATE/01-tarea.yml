@@ -1,0 +1,109 @@
+name: 📋 Nueva tarea
+description: Organiza una tarea clara y accionable para impulsar el proyecto.
+title: "[TASK] "
+labels:
+  - task
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 📋 Nueva tarea
+        Gracias por ayudar a mejorar **Crosaim Control Center**.
+        Mantén la tarea concreta, evita información innecesaria y enfócate en el resultado esperado.
+
+  - type: textarea
+    id: objetivo
+    attributes:
+      label: 🎯 Objetivo
+      description: ¿Qué queremos conseguir con esta tarea?
+      placeholder: Describe el resultado final de forma breve y clara.
+    validations:
+      required: true
+
+  - type: textarea
+    id: contexto
+    attributes:
+      label: 🧩 Contexto
+      description: Añade la información necesaria para entender el problema o la necesidad.
+      placeholder: ¿Por qué necesitamos hacerlo? ¿Qué situación actual debemos tener en cuenta?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alcance
+    attributes:
+      label: 📌 Alcance
+      description: Define qué incluye y, si es necesario, qué queda fuera de esta tarea.
+      placeholder: |
+        Incluye:
+        -
+        -
+
+        No incluye:
+        -
+    validations:
+      required: false
+
+  - type: textarea
+    id: criterios
+    attributes:
+      label: ✅ Criterios de aceptación
+      description: ¿Cómo sabremos que la tarea está terminada correctamente?
+      placeholder: |
+        - [ ]
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: prioridad
+    attributes:
+      label: 🚦 Prioridad
+      description: Selecciona el nivel de prioridad de esta tarea.
+      options:
+        - 🔴 Crítica
+        - 🟠 Alta
+        - 🟡 Media
+        - 🟢 Baja
+      default: 2
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 🧭 Área
+      description: ¿Qué parte del proyecto se ve afectada?
+      options:
+        - Frontend
+        - Backend
+        - Base de datos
+        - Discord / Webhooks
+        - Integraciones
+        - Infraestructura / Deploy
+        - UX / UI
+        - Seguridad
+        - Documentación
+        - Otro
+    validations:
+      required: true
+
+  - type: textarea
+    id: referencias
+    attributes:
+      label: 🔗 Referencias
+      description: Añade enlaces, issues relacionados, capturas o información técnica útil.
+      placeholder: Enlaces, #issue, documentación, capturas, etc.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 🔍 Antes de enviar
+      options:
+        - label: He comprobado que no existe una tarea duplicada.
+          required: true
+        - label: La tarea tiene un objetivo y criterios de aceptación claros.
+          required: true
