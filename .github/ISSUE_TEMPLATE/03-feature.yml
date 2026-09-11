@@ -1,0 +1,71 @@
+name: 🚀 Nueva función
+description: Propón una funcionalidad que aporte valor real al proyecto.
+title: "[FEATURE] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🚀 Nueva función
+        Las mejores propuestas parten de una necesidad clara. Explica el problema y el valor que aportaría la solución.
+
+  - type: textarea
+    id: necesidad
+    attributes:
+      label: 💡 Necesidad
+      description: ¿Qué problema o necesidad queremos resolver?
+      placeholder: Explica la necesidad desde el punto de vista del usuario o del proyecto.
+    validations:
+      required: true
+
+  - type: textarea
+    id: propuesta
+    attributes:
+      label: 🧠 Propuesta
+      description: Describe la funcionalidad que propones.
+      placeholder: Explica cómo debería funcionar, sin necesidad de entrar todavía en todos los detalles técnicos.
+    validations:
+      required: true
+
+  - type: textarea
+    id: valor
+    attributes:
+      label: 📈 Valor esperado
+      description: ¿Qué mejora aporta esta función?
+      placeholder: Ahorro de tiempo, mejor experiencia, automatización, seguridad, crecimiento, etc.
+    validations:
+      required: true
+
+  - type: textarea
+    id: criterios
+    attributes:
+      label: ✅ Criterios de aceptación
+      placeholder: |
+        - [ ]
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: prioridad
+    attributes:
+      label: 🚦 Prioridad
+      options:
+        - 🔴 Crítica
+        - 🟠 Alta
+        - 🟡 Media
+        - 🟢 Baja
+      default: 2
+    validations:
+      required: true
+
+  - type: textarea
+    id: referencias
+    attributes:
+      label: 🔗 Referencias
+      description: Añade ejemplos, enlaces, diseños o issues relacionados.
+      placeholder: Enlaces, ejemplos, #issue, capturas, etc.
+    validations:
+      required: false
