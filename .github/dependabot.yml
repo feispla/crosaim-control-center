@@ -1,0 +1,35 @@
+# Dependabot configuration for CrosAim Control Center
+
+# Automatically checks project dependencies for available updates.
+
+version: 2
+
+updates:
+
+* package-ecosystem: "npm"
+  directory: "/"
+  schedule:
+  interval: "weekly"
+
+  # Group compatible dependency updates together
+
+  groups:
+  dependencies:
+  patterns:
+  - "*"
+
+  # Keep pull requests manageable
+
+  open-pull-requests-limit: 10
+
+  # Add labels to Dependabot pull requests
+
+  labels:
+
+  * "dependencies"
+
+  # Commit message convention
+
+  commit-message:
+  prefix: "chore"
+  include: "scope"
