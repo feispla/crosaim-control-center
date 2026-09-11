@@ -5,31 +5,25 @@
 version: 2
 
 updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
 
-* package-ecosystem: "npm"
-  directory: "/"
-  schedule:
-  interval: "weekly"
+    # Group compatible dependency updates together
+    groups:
+      dependencies:
+        patterns:
+          - "*"
 
-  # Group compatible dependency updates together
+    # Keep pull requests manageable
+    open-pull-requests-limit: 10
 
-  groups:
-  dependencies:
-  patterns:
-  - "*"
+    # Add labels to Dependabot pull requests
+    labels:
+      - "dependencies"
 
-  # Keep pull requests manageable
-
-  open-pull-requests-limit: 10
-
-  # Add labels to Dependabot pull requests
-
-  labels:
-
-  * "dependencies"
-
-  # Commit message convention
-
-  commit-message:
-  prefix: "chore"
-  include: "scope"
+    # Commit message convention
+    commit-message:
+      prefix: "chore"
+      include: "scope"
