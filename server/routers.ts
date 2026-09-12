@@ -15,6 +15,7 @@ import { ENV } from "./_core/env";
 import { sendPushToUser } from "./push";
 import { consumeRateLimit, isSameSiteRequest, requestIdentity } from "./security";
 import { canTransitionApplication, canonicalApplicationStatus, eventForApplicationStatus } from "./applicationState";
+import { getStatsProviderStatus, valorantProviderMessage } from "./statsProviders";
 
 const applicationStatus = z.enum(["POSTULACIÓN", "REVISIÓN", "ENTREVISTA", "APROBADA", "RECHAZADA", "ROSTER", "TRYOUT", "Pendiente", "En revisión", "Entrevista", "Aprobada", "Rechazada"]);
 const notificationSeverity = z.enum(["info", "success", "warning", "urgent"]);
@@ -51,6 +52,9 @@ async function queueDiscordEvent(eventType: string, dedupeKey: string, payload: 
 
 export const appRouter = router({
   system: systemRouter,
+  stats: router({
+    providers: publicProcedure.query(() => ({ ...getStatsProviderStatus(), valorant: { message: valorantProviderMessage() } })),
+  }),
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => { const cookieOptions = getSessionCookieOptions(ctx.req); ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 }); return { success: true } as const; }),
