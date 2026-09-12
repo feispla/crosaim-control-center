@@ -14,6 +14,7 @@ import { storagePut } from "../storage";
 import { sdk } from "./sdk";
 import { allowedClipTypes, consumeRateLimit, isSameSiteRequest, MAX_CLIP_BYTES, requestIdentity, safeClipName } from "../security";
 import { createApplication, getApplicationByDiscordMessageId, listApplications, listPendingDiscordEvents, markDiscordEventFailed, markDiscordEventSent, updateApplicationDiscordMessageId } from "../db";
+import { getTrackerProfile, trackerSupportedTitles } from "../statsProviders";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -43,6 +44,17 @@ async function startServer() {
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   registerDiscordOAuthRoutes(app);
+
+  app.get("/api/tracker/profile", async (req, res) => {
+    const botToken = process.env.DISCORD_TRACKER_BOT_TOKEN;
+    if (!botToken || req.header("x-crosaim-tracker-bot-token") !== botToken) return res.status(401).json({ error: "tracker-bot-not-authorized" });
+    const title = typeof req.query.title === "string" ? req.query.title : "";
+    const platform = typeof req.query.platform === "string" ? req.query.platform : "";
+    const player = typeof req.query.player === "string" ? req.query.player : "";
+    if (!trackerSupportedTitles.includes(title as typeof trackerSupportedTitles[number]) || !platform || player.trim().length < 2 || player.length > 120) return res.status(400).json({ error: "invalid-tracker-query" });
+    try { return res.json(await getTrackerProfile({ title: title as typeof trackerSupportedTitles[number], platform, player })); }
+    catch (error) { return res.status(502).json({ error: error instanceof Error ? error.message : "tracker-unavailable" }); }
+  });
 
   app.get("/api/discord/widget", async (_req, res) => {
     try {
