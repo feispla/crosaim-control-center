@@ -15,6 +15,7 @@ export const users = mysqlTable("users", {
 export const applications = mysqlTable("applications", {
   id: int("id").autoincrement().primaryKey(),
   trackingToken: varchar("trackingToken", { length: 64 }).notNull().unique(),
+  publicLookupNumber: varchar("publicLookupNumber", { length: 12 }).notNull().unique(),
   playerName: varchar("playerName", { length: 120 }).notNull(),
   discordUsername: varchar("discordUsername", { length: 120 }).notNull(),
   discordUserId: varchar("discordUserId", { length: 40 }),

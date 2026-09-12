@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { randomInt } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { nanoid } from "nanoid";
 import { COOKIE_NAME } from "@shared/const";
@@ -7,7 +8,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   createApplication, createClip, createContentItem, createDiscordEvent, createNotification, createRosterPlayer, createScheduleItem,
-  deleteApplication, deleteClip, deleteContentItem, deleteNotification, deleteRosterPlayer, deleteScheduleItem, getApplicationById, getApplicationByTrackingToken, getDiscordAccountByUserId, getUserByOpenId,
+  deleteApplication, deleteClip, deleteContentItem, deleteNotification, deleteRosterPlayer, deleteScheduleItem, getApplicationById, getApplicationByPublicLookupNumber, getApplicationByTrackingToken, getDiscordAccountByUserId, getUserByOpenId,
   createPushAlertHistory, listApplications, listClips, listContentItems, listNotifications, listPushAlertHistory, listPushSubscribersForAdmin, listRosterPlayers, listScheduleItems,
   savePushSubscription, toggleNotificationRead, transitionApplication, updateContentItem, updateRosterPlayer, updateScheduleItem,
 } from "./db";
@@ -73,21 +74,23 @@ export const appRouter = router({
       if (!consumeRateLimit(`application:${requestIdentity(ctx.req)}`, 3, 60 * 60 * 1000)) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Demasiadas postulaciones. Intenta nuevamente más tarde." });
       const { website: _website, ...applicationInput } = input;
       const trackingToken = nanoid(18);
-      const result = await createApplication({ ...applicationInput, trackingToken, status: "POSTULACIÓN", statusChangedAt: new Date() });
-      const payload = { applicationId: result.id, playerName: input.playerName, discordUsername: input.discordUsername, discordUserId: input.discordUserId ?? null, role: input.role, rank: input.rank, contact: input.contact ?? null, message: input.message, status: "POSTULACIÓN", trackingToken };
+      let publicLookupNumber = String(randomInt(100000, 1000000));
+      for (let attempt = 0; attempt < 5 && await getApplicationByPublicLookupNumber(publicLookupNumber); attempt += 1) publicLookupNumber = String(randomInt(100000, 1000000));
+      const result = await createApplication({ ...applicationInput, trackingToken, publicLookupNumber, status: "POSTULACIÓN", statusChangedAt: new Date() });
+      const payload = { applicationId: result.id, playerName: input.playerName, discordUsername: input.discordUsername, discordUserId: input.discordUserId ?? null, role: input.role, rank: input.rank, contact: input.contact ?? null, message: input.message, status: "POSTULACIÓN", trackingToken, publicLookupNumber };
       await queueDiscordEvent("application_submitted", `application:${result.id}:submitted`, payload);
       const owner = await getUserByOpenId(ENV.ownerOpenId);
       if (owner) {
         await createNotification({ userId: owner.id, title: "Nueva postulación recibida", detail: `${input.playerName} · ${input.role} · ${input.rank} · Discord: ${input.discordUsername}`, severity: "urgent", source: "Reclutamiento", read: false });
         await sendPushToUser(owner.id, { title: "Nueva postulación CROSAIM", body: `${input.playerName} · ${input.role} · ${input.rank}`, tag: `application-${result.id}`, url: "/", requireInteraction: true });
       }
-      return { ...result, trackingToken, message: "Postulación recibida. Guarda tu código de seguimiento para consultar el estado." };
+      return { ...result, trackingToken, publicLookupNumber, message: "Postulación recibida. Guarda tu número de consulta para revisar el estado sin iniciar sesión." };
     }),
     list: adminProcedure.query(() => listApplications()),
-    lookup: publicProcedure.input(z.object({ trackingToken: z.string().trim().min(12).max(64).optional(), id: z.number().int().positive().optional(), discordUsername: z.string().trim().min(2).max(120).optional() }).refine((input) => Boolean(input.trackingToken) || Boolean(input.id && input.discordUsername), { message: "Usa un código de seguimiento o los datos históricos completos." })).query(async ({ ctx, input }) => {
+    lookup: publicProcedure.input(z.object({ publicLookupNumber: z.string().regex(/^\d{6}$/).or(z.literal("")).optional(), trackingToken: z.string().trim().min(12).max(64).or(z.literal("")).optional(), id: z.number().int().positive().optional(), discordUsername: z.string().trim().min(2).max(120).or(z.literal("")).optional() }).refine((input) => Boolean(input.publicLookupNumber || input.trackingToken) || Boolean(input.id && input.discordUsername), { message: "Usa tu número de consulta, código de seguimiento o los datos históricos completos." })).query(async ({ ctx, input }) => {
       if (!isSameSiteRequest(ctx.req)) throw new TRPCError({ code: "FORBIDDEN", message: "Origen no autorizado" });
       if (!consumeRateLimit(`application-lookup:${requestIdentity(ctx.req)}`, 12, 15 * 60 * 1000)) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Demasiadas consultas. Intenta nuevamente más tarde." });
-      const application = input.trackingToken ? await getApplicationByTrackingToken(input.trackingToken) : (await listApplications()).find((item) => item.id === input.id && item.discordUsername.trim().toLowerCase() === input.discordUsername?.trim().toLowerCase());
+      const application = input.publicLookupNumber ? await getApplicationByPublicLookupNumber(input.publicLookupNumber) : input.trackingToken ? await getApplicationByTrackingToken(input.trackingToken) : (await listApplications()).find((item) => item.id === input.id && item.discordUsername.trim().toLowerCase() === input.discordUsername?.trim().toLowerCase());
       if (!application) throw new TRPCError({ code: "NOT_FOUND", message: "No encontramos una postulación con esos datos." });
       return { id: application.id, playerName: application.playerName, role: application.role, rank: application.rank, status: application.status, createdAt: application.createdAt };
     }),

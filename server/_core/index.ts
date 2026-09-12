@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
+import { randomInt } from "node:crypto";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { nanoid } from "nanoid";
 import { registerOAuthRoutes } from "./oauth";
@@ -122,8 +123,9 @@ async function startServer() {
       if (existingByMessage) return res.json({ created: false, application: existingByMessage });
       const existing = (await listApplications()).find((item) => item.playerName.trim().toLowerCase() === playerName.toLowerCase() && item.discordUsername.trim().replace(/^@/, "").toLowerCase() === discordUsername.replace(/^@/, "").toLowerCase() && item.message.trim() === message);
       if (existing) { if (!existing.discordMessageId) await updateApplicationDiscordMessageId(existing.id, discordMessageId); return res.json({ created: false, application: existing }); }
-      const result = await createApplication({ playerName, discordUsername, discordUserId: typeof body.discordUserId === "string" ? body.discordUserId.trim().slice(0, 40) || null : null, contact: typeof body.contact === "string" ? body.contact.trim().slice(0, 180) || null : null, role, rank, message, discordMessageId, trackingToken: nanoid(18), status: "POSTULACIÓN", statusChangedAt: new Date() });
-      return res.status(201).json({ created: true, id: result.id });
+      const publicLookupNumber = String(randomInt(100000, 1000000));
+      const result = await createApplication({ playerName, discordUsername, discordUserId: typeof body.discordUserId === "string" ? body.discordUserId.trim().slice(0, 40) || null : null, contact: typeof body.contact === "string" ? body.contact.trim().slice(0, 180) || null : null, role, rank, message, discordMessageId, trackingToken: nanoid(18), publicLookupNumber, status: "POSTULACIÓN", statusChangedAt: new Date() });
+      return res.status(201).json({ created: true, id: result.id, publicLookupNumber });
     } catch (error) { console.error("[Discord] Application sync failed", error); return res.status(500).json({ error: "application-sync-failed" }); }
   });
 
