@@ -5,12 +5,12 @@ import { nanoid } from "nanoid";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { adminProcedure, capabilityProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   createApplication, createClip, createContentItem, createDiscordEvent, createNotification, createRosterPlayer, createScheduleItem,
   deleteApplication, deleteClip, deleteContentItem, deleteNotification, deleteRosterPlayer, deleteScheduleItem, getApplicationById, getApplicationByPublicLookupNumber, getApplicationByTrackingToken, getDiscordAccountByUserId, getUserByOpenId,
   createPushAlertHistory, listApplications, listClips, listContentItems, listNotifications, listPushAlertHistory, listPushSubscribersForAdmin, listRosterPlayers, listScheduleItems,
-  savePushSubscription, toggleNotificationRead, transitionApplication, updateContentItem, updateRosterPlayer, updateScheduleItem,
+  savePushSubscription, toggleNotificationRead, transitionAndQueueApplication, updateContentItem, updateRosterPlayer, updateScheduleItem,
 } from "./db";
 import { ENV } from "./_core/env";
 import { sendPushToUser } from "./push";
@@ -86,7 +86,7 @@ export const appRouter = router({
       }
       return { ...result, trackingToken, publicLookupNumber, message: "Postulación recibida. Guarda tu número de consulta para revisar el estado sin iniciar sesión." };
     }),
-    list: adminProcedure.query(() => listApplications()),
+    list: capabilityProcedure("applications.review").query(() => listApplications()),
     lookup: publicProcedure.input(z.object({ publicLookupNumber: z.string().regex(/^\d{6}$/).or(z.literal("")).optional(), trackingToken: z.string().trim().min(12).max(64).or(z.literal("")).optional(), id: z.number().int().positive().optional(), discordUsername: z.string().trim().min(2).max(120).or(z.literal("")).optional() }).refine((input) => Boolean(input.publicLookupNumber || input.trackingToken) || Boolean(input.id && input.discordUsername), { message: "Usa tu número de consulta, código de seguimiento o los datos históricos completos." })).query(async ({ ctx, input }) => {
       if (!isSameSiteRequest(ctx.req)) throw new TRPCError({ code: "FORBIDDEN", message: "Origen no autorizado" });
       if (!consumeRateLimit(`application-lookup:${requestIdentity(ctx.req)}`, 12, 15 * 60 * 1000)) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Demasiadas consultas. Intenta nuevamente más tarde." });
@@ -94,15 +94,15 @@ export const appRouter = router({
       if (!application) throw new TRPCError({ code: "NOT_FOUND", message: "No encontramos una postulación con esos datos." });
       return { id: application.id, playerName: application.playerName, role: application.role, rank: application.rank, status: application.status, createdAt: application.createdAt };
     }),
-    updateStatus: adminProcedure.input(z.object({ id: z.number().int().positive(), status: applicationStatus })).mutation(async ({ ctx, input }) => {
+    updateStatus: capabilityProcedure("applications.review").input(z.object({ id: z.number().int().positive(), status: applicationStatus })).mutation(async ({ ctx, input }) => {
       const application = await getApplicationById(input.id);
       if (!application) throw new TRPCError({ code: "NOT_FOUND", message: "Postulación no encontrada" });
       const nextStatus = canonicalApplicationStatus(input.status);
       if (!canTransitionApplication(application.status, nextStatus)) throw new TRPCError({ code: "BAD_REQUEST", message: `Transición no permitida: ${application.status} → ${nextStatus}` });
       const eventId = nanoid(24);
-      await transitionApplication({ applicationId: application.id, fromStatus: canonicalApplicationStatus(application.status), toStatus: nextStatus, actorUserId: ctx.user.id, actorType: "staff", source: "web", eventId });
       const eventType = eventForApplicationStatus(nextStatus);
-      if (eventType) await queueDiscordEvent(eventType, `application:${application.id}:${nextStatus}`, { applicationId: application.id, playerName: application.playerName, discordUsername: application.discordUsername, discordUserId: application.discordUserId, role: application.role, rank: application.rank, contact: application.contact, message: application.message, status: nextStatus, transitionEventId: eventId });
+      const payload = { applicationId: application.id, playerName: application.playerName, discordUsername: application.discordUsername, discordUserId: application.discordUserId, role: application.role, rank: application.rank, contact: application.contact, message: application.message, status: nextStatus, transitionEventId: eventId };
+      await transitionAndQueueApplication({ applicationId: application.id, fromStatus: canonicalApplicationStatus(application.status), toStatus: nextStatus, actorUserId: ctx.user.id, actorType: "staff", source: "web", eventId, eventType: eventType ?? undefined, dedupeKey: eventType ? `application:${application.id}:${nextStatus}` : undefined, payload: eventType ? JSON.stringify(payload) : undefined });
       return { success: true, status: nextStatus, eventId } as const;
     }),
     remove: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => { await deleteApplication(input.id); return { success: true } as const; }),

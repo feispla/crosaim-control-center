@@ -14,8 +14,9 @@ import { serveStatic, setupVite } from "./vite";
 import { storagePut } from "../storage";
 import { sdk } from "./sdk";
 import { allowedClipTypes, consumeRateLimit, isSameSiteRequest, MAX_CLIP_BYTES, requestIdentity, safeClipName } from "../security";
-import { createApplication, getApplicationByDiscordMessageId, listApplications, listPendingDiscordEvents, markDiscordEventFailed, markDiscordEventSent, updateApplicationDiscordMessageId } from "../db";
+import { claimDiscordEvents, createApplication, getApplicationByDiscordMessageId, listApplications, markDiscordEventFailed, markDiscordEventSent, updateApplicationDiscordMessageId } from "../db";
 import { getTrackerProfile, trackerSupportedTitles } from "../statsProviders";
+import { verifyBotSyncRequest } from "../syncAuth";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -90,26 +91,27 @@ async function startServer() {
   });
 
   app.get("/api/discord/events", async (req, res) => {
-    const syncSecret = process.env.CROSAIM_BOT_SYNC_SECRET;
-    if (!syncSecret || req.header("x-crosaim-sync-secret") !== syncSecret) return res.status(401).json({ error: "sync-not-authorized" });
-    try { return res.json(await listPendingDiscordEvents(20)); } catch (error) { console.error("[Discord] Event polling failed", error); return res.status(500).json({ error: "sync-unavailable" }); }
+    if (!verifyBotSyncRequest(req)) return res.status(401).json({ error: "sync-not-authorized" });
+    try { return res.json(await claimDiscordEvents(20)); } catch (error) { console.error("[Discord] Event polling failed", error); return res.status(500).json({ error: "sync-unavailable" }); }
   });
 
   app.post("/api/discord/events/:id/ack", express.json({ limit: "8kb" }), async (req, res) => {
-    const syncSecret = process.env.CROSAIM_BOT_SYNC_SECRET;
-    if (!syncSecret || req.header("x-crosaim-sync-secret") !== syncSecret) return res.status(401).json({ error: "sync-not-authorized" });
+    if (!verifyBotSyncRequest(req)) return res.status(401).json({ error: "sync-not-authorized" });
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: "invalid-event-id" });
+    const leaseToken = typeof req.body?.leaseToken === "string" ? req.body.leaseToken.trim() : "";
+    if (leaseToken.length < 16 || leaseToken.length > 80) return res.status(400).json({ error: "invalid-lease-token" });
     try {
-      if (req.body?.ok === true) await markDiscordEventSent(id);
-      else await markDiscordEventFailed(id, typeof req.body?.error === "string" ? req.body.error : "Discord delivery failed");
+      const acknowledged = req.body?.ok === true
+        ? await markDiscordEventSent(id, leaseToken)
+        : await markDiscordEventFailed(id, leaseToken, typeof req.body?.error === "string" ? req.body.error : "Discord delivery failed");
+      if (!acknowledged) return res.status(409).json({ error: "lease-expired-or-invalid" });
       return res.status(204).send();
     } catch (error) { console.error("[Discord] Event acknowledgement failed", error); return res.status(500).json({ error: "ack-unavailable" }); }
   });
 
   app.post("/api/discord/applications", express.json({ limit: "32kb" }), async (req, res) => {
-    const syncSecret = process.env.CROSAIM_BOT_SYNC_SECRET;
-    if (!syncSecret || req.header("x-crosaim-sync-secret") !== syncSecret) return res.status(401).json({ error: "sync-not-authorized" });
+    if (!verifyBotSyncRequest(req)) return res.status(401).json({ error: "sync-not-authorized" });
     const body = req.body ?? {};
     const discordMessageId = typeof body.discordMessageId === "string" ? body.discordMessageId.trim().slice(0, 40) : "";
     const playerName = typeof body.playerName === "string" ? body.playerName.trim().slice(0, 120) : "";

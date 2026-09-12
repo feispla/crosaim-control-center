@@ -1,8 +1,10 @@
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, desc, eq, isNull, lte, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { applicationStateChanges, applications, clips, contentItems, discordAccounts, discordEvents, InsertUser, notifications, pushAlertHistory, pushSubscriptions, rosterPlayers, scheduleItems, users } from "../drizzle/schema";
+import { applicationStateChanges, applications, auditRecords, clips, contentItems, discordAccounts, discordEvents, InsertUser, notifications, pushAlertHistory, pushSubscriptions, rosterPlayers, scheduleItems, userRoleAssignments, users } from "../drizzle/schema";
 import type { ApplicationStatus } from "./applicationState";
 import { ENV } from "./_core/env";
+import { legacyRoleKey, type CrosaimRoleKey } from "@shared/rbac";
+import { nanoid } from "nanoid";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -31,6 +33,18 @@ export async function upsertUser(user: InsertUser): Promise<void> {
 }
 
 export async function getUserByOpenId(openId: string) { const db = await getDb(); if (!db) return undefined; const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1); return result.length > 0 ? result[0] : undefined; }
+export async function getEffectiveRoleKeys(user: { id: number; role: "user" | "admin" }): Promise<CrosaimRoleKey[]> {
+  const db = await getDb();
+  if (!db) return [legacyRoleKey(user.role)];
+  const assignments = await db.select().from(userRoleAssignments).where(and(eq(userRoleAssignments.userId, user.id), isNull(userRoleAssignments.revokedAt)));
+  const assigned = assignments.map(item => item.roleKey as CrosaimRoleKey);
+  return assigned.length > 0 ? Array.from(new Set(assigned)) : [legacyRoleKey(user.role)];
+}
+export async function createAuditRecord(input: typeof auditRecords.$inferInsert) {
+  const db = await getDb(); if (!db) return { id: 0 };
+  const result = await db.insert(auditRecords).values(input);
+  return { id: Number(result[0].insertId) };
+}
 export async function createApplication(input: typeof applications.$inferInsert) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); const result = await db.insert(applications).values(input); return { id: Number(result[0].insertId) }; }
 export async function listApplications() { const db = await getDb(); if (!db) return []; return db.select().from(applications).orderBy(desc(applications.createdAt)); }
 export async function getApplicationById(id: number) { const db = await getDb(); if (!db) return undefined; const result = await db.select().from(applications).where(eq(applications.id, id)).limit(1); return result[0]; }
@@ -41,14 +55,84 @@ export async function updateApplicationDiscordMessageId(id: number, discordMessa
 export async function transitionApplication(input: { applicationId: number; fromStatus: ApplicationStatus; toStatus: ApplicationStatus; actorUserId?: number | null; actorType: string; source: string; eventId: string }) {
   const db = await getDb(); if (!db) throw new Error("Database unavailable");
   const now = new Date();
-  await db.update(applications).set({ status: input.toStatus, statusChangedAt: now, statusChangedByUserId: input.actorUserId ?? null }).where(and(eq(applications.id, input.applicationId), eq(applications.status, input.fromStatus)));
-  await db.insert(applicationStateChanges).values({ eventId: input.eventId, applicationId: input.applicationId, fromStatus: input.fromStatus, toStatus: input.toStatus, actorUserId: input.actorUserId ?? null, actorType: input.actorType, source: input.source });
+  await db.transaction(async tx => {
+    const updated = await tx.update(applications).set({ status: input.toStatus, statusChangedAt: now, statusChangedByUserId: input.actorUserId ?? null }).where(and(eq(applications.id, input.applicationId), eq(applications.status, input.fromStatus)));
+    if (Number(updated[0].affectedRows) !== 1) throw new Error("Application state changed concurrently");
+    await tx.insert(applicationStateChanges).values({ eventId: input.eventId, applicationId: input.applicationId, fromStatus: input.fromStatus, toStatus: input.toStatus, actorUserId: input.actorUserId ?? null, actorType: input.actorType, source: input.source });
+    await tx.insert(auditRecords).values({ eventId: nanoid(24), actorUserId: input.actorUserId ?? null, actorType: input.actorType, action: "application.transition", entityType: "application", entityId: String(input.applicationId), beforeState: JSON.stringify({ status: input.fromStatus }), afterState: JSON.stringify({ status: input.toStatus, transitionEventId: input.eventId }), correlationId: input.eventId, source: input.source, outcome: "succeeded" });
+  });
+}
+
+export async function transitionAndQueueApplication(input: { applicationId: number; fromStatus: ApplicationStatus; toStatus: ApplicationStatus; actorUserId?: number | null; actorType: string; source: string; eventId: string; eventType?: string; dedupeKey?: string; payload?: string }) {
+  const db = await getDb(); if (!db) throw new Error("Database unavailable");
+  const now = new Date();
+  await db.transaction(async tx => {
+    const updated = await tx.update(applications).set({ status: input.toStatus, statusChangedAt: now, statusChangedByUserId: input.actorUserId ?? null }).where(and(eq(applications.id, input.applicationId), eq(applications.status, input.fromStatus)));
+    if (Number(updated[0].affectedRows) !== 1) throw new Error("Application state changed concurrently");
+    await tx.insert(applicationStateChanges).values({ eventId: input.eventId, applicationId: input.applicationId, fromStatus: input.fromStatus, toStatus: input.toStatus, actorUserId: input.actorUserId ?? null, actorType: input.actorType, source: input.source });
+    await tx.insert(auditRecords).values({ eventId: nanoid(24), actorUserId: input.actorUserId ?? null, actorType: input.actorType, action: "application.transition", entityType: "application", entityId: String(input.applicationId), beforeState: JSON.stringify({ status: input.fromStatus }), afterState: JSON.stringify({ status: input.toStatus, transitionEventId: input.eventId }), correlationId: input.eventId, source: input.source, outcome: "succeeded" });
+    if (input.eventType && input.dedupeKey && input.payload) {
+      await tx.insert(discordEvents).values({ eventType: input.eventType, dedupeKey: input.dedupeKey, payload: input.payload, status: "pending", attempts: 0, correlationId: input.eventId }).onDuplicateKeyUpdate({ set: { dedupeKey: input.dedupeKey } });
+    }
+  });
 }
 export async function deleteApplication(id: number) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); await db.delete(applications).where(eq(applications.id, id)); }
 export async function createDiscordEvent(input: typeof discordEvents.$inferInsert) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); const result = await db.insert(discordEvents).values(input).onDuplicateKeyUpdate({ set: { dedupeKey: input.dedupeKey } }); return { id: Number(result[0].insertId || 0) }; }
-export async function listPendingDiscordEvents(limit = 20) { const db = await getDb(); if (!db) return []; return db.select().from(discordEvents).where(or(eq(discordEvents.status, "pending"), eq(discordEvents.status, "failed"))).orderBy(discordEvents.createdAt).limit(limit); }
-export async function markDiscordEventSent(id: number) { const db = await getDb(); if (!db) return; await db.update(discordEvents).set({ status: "sent", processedAt: new Date(), attempts: 1 }).where(eq(discordEvents.id, id)); }
-export async function markDiscordEventFailed(id: number, error: string) { const db = await getDb(); if (!db) return; await db.update(discordEvents).set({ status: "failed", lastError: error.slice(0, 1000), processedAt: new Date(), attempts: 1 }).where(eq(discordEvents.id, id)); }
+const DISCORD_EVENT_LEASE_MS = 60_000;
+const DISCORD_EVENT_MAX_ATTEMPTS = 8;
+
+export async function claimDiscordEvents(limit = 20) {
+  const db = await getDb(); if (!db) return [];
+  const now = new Date();
+  const candidates = await db.select().from(discordEvents).where(or(
+    eq(discordEvents.status, "pending"),
+    eq(discordEvents.status, "retry"),
+    and(eq(discordEvents.status, "processing"), lte(discordEvents.leasedUntil, now)),
+  )).orderBy(discordEvents.createdAt).limit(limit * 3);
+  const claimed: Array<typeof discordEvents.$inferSelect> = [];
+  for (const candidate of candidates) {
+    if (claimed.length >= limit) break;
+    if (candidate.status === "retry" && candidate.nextAttemptAt && candidate.nextAttemptAt > now) continue;
+    const leaseToken = nanoid(32);
+    const leasedUntil = new Date(now.getTime() + DISCORD_EVENT_LEASE_MS);
+    const result = await db.update(discordEvents).set({
+      status: "processing",
+      attempts: candidate.attempts + 1,
+      leaseToken,
+      leasedUntil,
+      nextAttemptAt: null,
+      lastError: null,
+    }).where(and(eq(discordEvents.id, candidate.id), eq(discordEvents.status, candidate.status), eq(discordEvents.attempts, candidate.attempts)));
+    if (Number(result[0].affectedRows) === 1) {
+      claimed.push({ ...candidate, status: "processing", attempts: candidate.attempts + 1, leaseToken, leasedUntil, nextAttemptAt: null, lastError: null });
+    }
+  }
+  return claimed;
+}
+
+export async function markDiscordEventSent(id: number, leaseToken: string) {
+  const db = await getDb(); if (!db) return false;
+  const result = await db.update(discordEvents).set({ status: "sent", processedAt: new Date(), leaseToken: null, leasedUntil: null, nextAttemptAt: null }).where(and(eq(discordEvents.id, id), eq(discordEvents.status, "processing"), eq(discordEvents.leaseToken, leaseToken)));
+  return Number(result[0].affectedRows) === 1;
+}
+
+export async function markDiscordEventFailed(id: number, leaseToken: string, error: string) {
+  const db = await getDb(); if (!db) return false;
+  const rows = await db.select().from(discordEvents).where(and(eq(discordEvents.id, id), eq(discordEvents.status, "processing"), eq(discordEvents.leaseToken, leaseToken))).limit(1);
+  const event = rows[0];
+  if (!event) return false;
+  const exhausted = event.attempts >= DISCORD_EVENT_MAX_ATTEMPTS;
+  const retryDelayMs = Math.min(300_000, 1_000 * (2 ** Math.max(0, event.attempts - 1)));
+  const result = await db.update(discordEvents).set({
+    status: exhausted ? "dead_letter" : "retry",
+    lastError: error.slice(0, 1000),
+    processedAt: exhausted ? new Date() : null,
+    nextAttemptAt: exhausted ? null : new Date(Date.now() + retryDelayMs),
+    leaseToken: null,
+    leasedUntil: null,
+  }).where(and(eq(discordEvents.id, id), eq(discordEvents.status, "processing"), eq(discordEvents.leaseToken, leaseToken)));
+  return Number(result[0].affectedRows) === 1;
+}
 
 export async function upsertDiscordAccount(input: { openId: string; discordId: string; username: string; displayName?: string | null; avatarUrl?: string | null; inCrosaimGuild: boolean }) {
   const db = await getDb(); if (!db) throw new Error("Database unavailable");

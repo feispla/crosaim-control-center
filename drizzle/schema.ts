@@ -1,4 +1,5 @@
 import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { CROSAIM_ROLE_KEYS } from "@shared/rbac";
 
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -53,6 +54,32 @@ export const discordAccounts = mysqlTable("discordAccounts", {
   inCrosaimGuild: boolean("inCrosaimGuild").default(false).notNull(),
   linkedAt: timestamp("linkedAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const userRoleAssignments = mysqlTable("userRoleAssignments", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  roleKey: mysqlEnum("roleKey", CROSAIM_ROLE_KEYS).notNull(),
+  grantedByUserId: int("grantedByUserId"),
+  source: varchar("source", { length: 64 }).default("control-center").notNull(),
+  grantedAt: timestamp("grantedAt").defaultNow().notNull(),
+  revokedAt: timestamp("revokedAt"),
+});
+
+export const auditRecords = mysqlTable("auditRecords", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: varchar("eventId", { length: 64 }).notNull().unique(),
+  actorUserId: int("actorUserId"),
+  actorType: varchar("actorType", { length: 32 }).notNull(),
+  action: varchar("action", { length: 120 }).notNull(),
+  entityType: varchar("entityType", { length: 80 }).notNull(),
+  entityId: varchar("entityId", { length: 80 }),
+  beforeState: text("beforeState"),
+  afterState: text("afterState"),
+  correlationId: varchar("correlationId", { length: 80 }),
+  source: varchar("source", { length: 64 }).notNull(),
+  outcome: mysqlEnum("outcome", ["allowed", "denied", "succeeded", "failed"]).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 export const notifications = mysqlTable("notifications", {
@@ -143,9 +170,13 @@ export const discordEvents = mysqlTable("discordEvents", {
   eventType: varchar("eventType", { length: 40 }).notNull(),
   dedupeKey: varchar("dedupeKey", { length: 180 }).notNull().unique(),
   payload: text("payload").notNull(),
-  status: mysqlEnum("status", ["pending", "sent", "failed"]).default("pending").notNull(),
+  status: mysqlEnum("status", ["pending", "processing", "sent", "retry", "dead_letter"]).default("pending").notNull(),
   attempts: int("attempts").default(0).notNull(),
   lastError: text("lastError"),
+  nextAttemptAt: timestamp("nextAttemptAt"),
+  leaseToken: varchar("leaseToken", { length: 80 }),
+  leasedUntil: timestamp("leasedUntil"),
+  correlationId: varchar("correlationId", { length: 80 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   processedAt: timestamp("processedAt"),
 });
@@ -162,3 +193,5 @@ export type ScheduleItem = typeof scheduleItems.$inferSelect;
 export type Clip = typeof clips.$inferSelect;
 export type DiscordEvent = typeof discordEvents.$inferSelect;
 export type DiscordAccount = typeof discordAccounts.$inferSelect;
+export type UserRoleAssignment = typeof userRoleAssignments.$inferSelect;
+export type AuditRecord = typeof auditRecords.$inferSelect;

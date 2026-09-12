@@ -50,6 +50,13 @@
       "when": 1789038393945,
       "tag": "0006_young_demogoblin",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1789232920568,
+      "tag": "0007_crosaim_rbac_durable_events",
+      "breakpoints": true
     }
   ]
 }
