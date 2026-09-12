@@ -15,7 +15,7 @@ import { ENV } from "./_core/env";
 import { sendPushToUser } from "./push";
 import { consumeRateLimit, isSameSiteRequest, requestIdentity } from "./security";
 import { canTransitionApplication, canonicalApplicationStatus, eventForApplicationStatus } from "./applicationState";
-import { getStatsProviderStatus, valorantProviderMessage } from "./statsProviders";
+import { getStatsProviderStatus, getTrackerProfile, trackerPlatform, trackerSupportedTitles, valorantProviderMessage } from "./statsProviders";
 
 const applicationStatus = z.enum(["POSTULACIÓN", "REVISIÓN", "ENTREVISTA", "APROBADA", "RECHAZADA", "ROSTER", "TRYOUT", "Pendiente", "En revisión", "Entrevista", "Aprobada", "Rechazada"]);
 const notificationSeverity = z.enum(["info", "success", "warning", "urgent"]);
@@ -54,6 +54,7 @@ export const appRouter = router({
   system: systemRouter,
   stats: router({
     providers: publicProcedure.query(() => ({ ...getStatsProviderStatus(), valorant: { message: valorantProviderMessage() } })),
+    profile: publicProcedure.input(z.object({ title: z.enum(trackerSupportedTitles), platform: trackerPlatform, player: z.string().trim().min(2).max(120) })).query(({ input }) => getTrackerProfile(input)),
   }),
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
