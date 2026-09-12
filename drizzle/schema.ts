@@ -14,6 +14,7 @@ export const users = mysqlTable("users", {
 
 export const applications = mysqlTable("applications", {
   id: int("id").autoincrement().primaryKey(),
+  trackingToken: varchar("trackingToken", { length: 64 }).notNull().unique(),
   playerName: varchar("playerName", { length: 120 }).notNull(),
   discordUsername: varchar("discordUsername", { length: 120 }).notNull(),
   discordUserId: varchar("discordUserId", { length: 40 }),
@@ -22,8 +23,34 @@ export const applications = mysqlTable("applications", {
   role: varchar("role", { length: 80 }).notNull(),
   rank: varchar("rank", { length: 80 }).notNull(),
   message: text("message").notNull(),
-  status: mysqlEnum("status", ["Pendiente", "En revisión", "Entrevista", "Aprobada", "Rechazada"]).default("Pendiente").notNull(),
+  status: mysqlEnum("status", ["POSTULACIÓN", "REVISIÓN", "ENTREVISTA", "APROBADA", "RECHAZADA", "ROSTER", "TRYOUT"]).default("POSTULACIÓN").notNull(),
+  statusChangedAt: timestamp("statusChangedAt").defaultNow().notNull(),
+  statusChangedByUserId: int("statusChangedByUserId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const applicationStateChanges = mysqlTable("applicationStateChanges", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: varchar("eventId", { length: 64 }).notNull().unique(),
+  applicationId: int("applicationId").notNull(),
+  fromStatus: varchar("fromStatus", { length: 32 }),
+  toStatus: varchar("toStatus", { length: 32 }).notNull(),
+  actorUserId: int("actorUserId"),
+  actorType: varchar("actorType", { length: 32 }).default("staff").notNull(),
+  source: varchar("source", { length: 32 }).default("web").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const discordAccounts = mysqlTable("discordAccounts", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  discordId: varchar("discordId", { length: 40 }).notNull().unique(),
+  username: varchar("username", { length: 120 }).notNull(),
+  displayName: varchar("displayName", { length: 120 }),
+  avatarUrl: varchar("avatarUrl", { length: 768 }),
+  inCrosaimGuild: boolean("inCrosaimGuild").default(false).notNull(),
+  linkedAt: timestamp("linkedAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
@@ -133,3 +160,4 @@ export type ContentItem = typeof contentItems.$inferSelect;
 export type ScheduleItem = typeof scheduleItems.$inferSelect;
 export type Clip = typeof clips.$inferSelect;
 export type DiscordEvent = typeof discordEvents.$inferSelect;
+export type DiscordAccount = typeof discordAccounts.$inferSelect;
