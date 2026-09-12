@@ -1,20 +1,22 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { nanoid } from "nanoid";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   createApplication, createClip, createContentItem, createDiscordEvent, createNotification, createRosterPlayer, createScheduleItem,
-  deleteApplication, deleteClip, deleteContentItem, deleteNotification, deleteRosterPlayer, deleteScheduleItem, getUserByOpenId,
+  deleteApplication, deleteClip, deleteContentItem, deleteNotification, deleteRosterPlayer, deleteScheduleItem, getApplicationById, getApplicationByTrackingToken, getDiscordAccountByUserId, getUserByOpenId,
   createPushAlertHistory, listApplications, listClips, listContentItems, listNotifications, listPushAlertHistory, listPushSubscribersForAdmin, listRosterPlayers, listScheduleItems,
-  savePushSubscription, toggleNotificationRead, updateApplicationStatus, updateContentItem, updateRosterPlayer, updateScheduleItem,
+  savePushSubscription, toggleNotificationRead, transitionApplication, updateContentItem, updateRosterPlayer, updateScheduleItem,
 } from "./db";
 import { ENV } from "./_core/env";
 import { sendPushToUser } from "./push";
 import { consumeRateLimit, isSameSiteRequest, requestIdentity } from "./security";
+import { canTransitionApplication, canonicalApplicationStatus, eventForApplicationStatus } from "./applicationState";
 
-const applicationStatus = z.enum(["Pendiente", "En revisión", "Entrevista", "Aprobada", "Rechazada"]);
+const applicationStatus = z.enum(["POSTULACIÓN", "REVISIÓN", "ENTREVISTA", "APROBADA", "RECHAZADA", "ROSTER", "TRYOUT", "Pendiente", "En revisión", "Entrevista", "Aprobada", "Rechazada"]);
 const notificationSeverity = z.enum(["info", "success", "warning", "urgent"]);
 const platform = z.enum(["Tracker.gg", "TikTok / Reels", "Discord"]);
 const rosterStatus = z.enum(["Activo", "Tryout", "Pendiente"]);
@@ -53,33 +55,47 @@ export const appRouter = router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => { const cookieOptions = getSessionCookieOptions(ctx.req); ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 }); return { success: true } as const; }),
   }),
+  discord: router({
+    account: protectedProcedure.query(async ({ ctx }) => {
+      const account = await getDiscordAccountByUserId(ctx.user.id);
+      return { account: account ?? null, linkUrl: "/api/discord/oauth/start" };
+    }),
+  }),
   applications: router({
-    submit: publicProcedure.input(z.object({ playerName: z.string().trim().min(2).max(120), discordUsername: z.string().trim().min(2).max(120), discordUserId: z.string().trim().max(40).optional(), contact: z.string().trim().max(180).optional(), role: z.string().trim().min(2).max(80), rank: z.string().trim().min(2).max(80), message: z.string().trim().min(10).max(3000), website: z.string().max(0).optional() })).mutation(async ({ ctx, input }) => { if (!isSameSiteRequest(ctx.req)) throw new TRPCError({ code: "FORBIDDEN", message: "Origen de formulario no autorizado" }); if (input.website) throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid form submission" }); if (!consumeRateLimit(`application:${requestIdentity(ctx.req)}`, 3, 60 * 60 * 1000)) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Demasiadas postulaciones. Intenta nuevamente más tarde." }); const { website: _website, ...applicationInput } = input; const result = await createApplication(applicationInput); const owner = await getUserByOpenId(ENV.ownerOpenId); if (owner) { await createNotification({ userId: owner.id, title: "Nueva postulación recibida", detail: `${input.playerName} · ${input.role} · ${input.rank} · Discord: ${input.discordUsername}`, severity: "urgent", source: "Reclutamiento", read: false }); await sendPushToUser(owner.id, { title: "Nueva postulación CROSAIM", body: `${input.playerName} · ${input.role} · ${input.rank}`, tag: `application-${result.id}`, url: "/", requireInteraction: true }); } try { await sendRecruitingWebhook(applicationInput); } catch (error) { console.error("[Discord] Recruiting webhook failed", error); } return { ...result, message: `Postulación #${result.id} recibida. Guarda este número y consulta el estado con tu usuario de Discord.` }; }),
+    submit: publicProcedure.input(z.object({ playerName: z.string().trim().min(2).max(120), discordUsername: z.string().trim().min(2).max(120), discordUserId: z.string().trim().max(40).optional(), contact: z.string().trim().max(180).optional(), role: z.string().trim().min(2).max(80), rank: z.string().trim().min(2).max(80), message: z.string().trim().min(10).max(3000), website: z.string().max(0).optional() })).mutation(async ({ ctx, input }) => {
+      if (!isSameSiteRequest(ctx.req)) throw new TRPCError({ code: "FORBIDDEN", message: "Origen de formulario no autorizado" });
+      if (input.website) throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid form submission" });
+      if (!consumeRateLimit(`application:${requestIdentity(ctx.req)}`, 3, 60 * 60 * 1000)) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Demasiadas postulaciones. Intenta nuevamente más tarde." });
+      const { website: _website, ...applicationInput } = input;
+      const trackingToken = nanoid(18);
+      const result = await createApplication({ ...applicationInput, trackingToken, status: "POSTULACIÓN", statusChangedAt: new Date() });
+      const payload = { applicationId: result.id, playerName: input.playerName, discordUsername: input.discordUsername, discordUserId: input.discordUserId ?? null, role: input.role, rank: input.rank, contact: input.contact ?? null, message: input.message, status: "POSTULACIÓN", trackingToken };
+      await queueDiscordEvent("application_submitted", `application:${result.id}:submitted`, payload);
+      const owner = await getUserByOpenId(ENV.ownerOpenId);
+      if (owner) {
+        await createNotification({ userId: owner.id, title: "Nueva postulación recibida", detail: `${input.playerName} · ${input.role} · ${input.rank} · Discord: ${input.discordUsername}`, severity: "urgent", source: "Reclutamiento", read: false });
+        await sendPushToUser(owner.id, { title: "Nueva postulación CROSAIM", body: `${input.playerName} · ${input.role} · ${input.rank}`, tag: `application-${result.id}`, url: "/", requireInteraction: true });
+      }
+      return { ...result, trackingToken, message: "Postulación recibida. Guarda tu código de seguimiento para consultar el estado." };
+    }),
     list: adminProcedure.query(() => listApplications()),
-    lookup: publicProcedure.input(z.object({ id: z.number().int().positive(), discordUsername: z.string().trim().min(2).max(120) })).query(async ({ ctx, input }) => {
+    lookup: publicProcedure.input(z.object({ trackingToken: z.string().trim().min(12).max(64).optional(), id: z.number().int().positive().optional(), discordUsername: z.string().trim().min(2).max(120).optional() }).refine((input) => Boolean(input.trackingToken) || Boolean(input.id && input.discordUsername), { message: "Usa un código de seguimiento o los datos históricos completos." })).query(async ({ ctx, input }) => {
       if (!isSameSiteRequest(ctx.req)) throw new TRPCError({ code: "FORBIDDEN", message: "Origen no autorizado" });
       if (!consumeRateLimit(`application-lookup:${requestIdentity(ctx.req)}`, 12, 15 * 60 * 1000)) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Demasiadas consultas. Intenta nuevamente más tarde." });
-      const application = (await listApplications()).find((item) => item.id === input.id && item.discordUsername.trim().toLowerCase() === input.discordUsername.trim().toLowerCase());
+      const application = input.trackingToken ? await getApplicationByTrackingToken(input.trackingToken) : (await listApplications()).find((item) => item.id === input.id && item.discordUsername.trim().toLowerCase() === input.discordUsername?.trim().toLowerCase());
       if (!application) throw new TRPCError({ code: "NOT_FOUND", message: "No encontramos una postulación con esos datos." });
       return { id: application.id, playerName: application.playerName, role: application.role, rank: application.rank, status: application.status, createdAt: application.createdAt };
     }),
-    updateStatus: adminProcedure.input(z.object({ id: z.number().int().positive(), status: applicationStatus })).mutation(async ({ input }) => {
-      const application = (await listApplications()).find((item) => item.id === input.id);
+    updateStatus: adminProcedure.input(z.object({ id: z.number().int().positive(), status: applicationStatus })).mutation(async ({ ctx, input }) => {
+      const application = await getApplicationById(input.id);
       if (!application) throw new TRPCError({ code: "NOT_FOUND", message: "Postulación no encontrada" });
-      await updateApplicationStatus(input.id, input.status);
-      if (input.status === "Entrevista" || input.status === "Aprobada" || input.status === "Rechazada") {
-        await queueDiscordEvent(`application_${input.status === "Entrevista" ? "interview" : input.status === "Aprobada" ? "approved" : "rejected"}`, `application:${application.id}:${input.status}`, {
-          applicationId: application.id,
-          playerName: application.playerName,
-          discordUsername: application.discordUsername,
-          discordUserId: application.discordUserId,
-          role: application.role,
-          rank: application.rank,
-          contact: application.contact,
-          message: application.message,
-        });
-      }
-      return { success: true } as const;
+      const nextStatus = canonicalApplicationStatus(input.status);
+      if (!canTransitionApplication(application.status, nextStatus)) throw new TRPCError({ code: "BAD_REQUEST", message: `Transición no permitida: ${application.status} → ${nextStatus}` });
+      const eventId = nanoid(24);
+      await transitionApplication({ applicationId: application.id, fromStatus: canonicalApplicationStatus(application.status), toStatus: nextStatus, actorUserId: ctx.user.id, actorType: "staff", source: "web", eventId });
+      const eventType = eventForApplicationStatus(nextStatus);
+      if (eventType) await queueDiscordEvent(eventType, `application:${application.id}:${nextStatus}`, { applicationId: application.id, playerName: application.playerName, discordUsername: application.discordUsername, discordUserId: application.discordUserId, role: application.role, rank: application.rank, contact: application.contact, message: application.message, status: nextStatus, transitionEventId: eventId });
+      return { success: true, status: nextStatus, eventId } as const;
     }),
     remove: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => { await deleteApplication(input.id); return { success: true } as const; }),
   }),

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-describe("Discord webhook configuration", () => {
+const webhookUrl = process.env.DISCORD_CROSAIM_WEBHOOK_URL;
+
+describe.runIf(Boolean(webhookUrl && process.env.CROSAIM_LIVE_DISCORD_TESTS === "true"))("Discord webhook configuration", () => {
   it("can reach the configured webhook without sending a message", async () => {
-    const webhookUrl = process.env.DISCORD_CROSAIM_WEBHOOK_URL;
     expect(webhookUrl).toMatch(/^https:\/\/discord\.com\/api\/webhooks\//);
 
     const response = await fetch(webhookUrl!, { method: "GET" });
